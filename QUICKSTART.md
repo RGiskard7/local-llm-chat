@@ -16,6 +16,17 @@ source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
+### Para GPU (CUDA) - Windows/Linux
+
+```bash
+# Instalar PyTorch con CUDA primero
+pip uninstall torch torchvision torchaudio
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# Verificar CUDA
+python verify_cuda.py
+```
+
 ## Primera Ejecución
 
 ### Opción A: Ya tienes un modelo GGUF

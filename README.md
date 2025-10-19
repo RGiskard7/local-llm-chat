@@ -39,6 +39,16 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente. Soporta **m
 - 10GB espacio en disco para modelos
 - Opcional: GPU con soporte CUDA o Metal
 
+### Requisitos GPU (CUDA)
+
+Para usar aceleración GPU en Windows/Linux con NVIDIA:
+
+1. **CUDA Toolkit** instalado (versión 11.8 o 12.1)
+2. **PyTorch con soporte CUDA** (ver instalación abajo)
+3. **Drivers NVIDIA** actualizados
+
+**⚠️ Importante**: Por defecto, PyTorch se instala sin soporte CUDA. Debes instalarlo explícitamente.
+
 ## Instalación
 
 ### Instalación Estándar
@@ -56,6 +66,27 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
+### Instalación con Soporte CUDA (Windows/Linux)
+
+Para usar aceleración GPU con NVIDIA:
+
+```bash
+# 1. Instalar PyTorch con CUDA primero
+pip uninstall torch torchvision torchaudio  # Si ya está instalado
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# 2. Verificar CUDA
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# 3. Instalar el resto de dependencias
+pip install -e .
+```
+
+**Nota**: Si CUDA 12.1 no funciona, prueba con CUDA 11.8:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
 ### Desde PyPI
 
 ```bash
@@ -66,6 +97,12 @@ pip install local-llm-chat
 
 ```bash
 python verify_installation.py
+```
+
+### Verificar CUDA (Windows/Linux)
+
+```bash
+python verify_cuda.py
 ```
 
 ## Inicio Rápido
@@ -502,13 +539,24 @@ ModuleNotFoundError: No module named 'chat_ia'
 
 ### Error: GPU No Detectada
 
-**Soluciones para CUDA:**
+**Problema más común**: PyTorch instalado sin soporte CUDA.
+
+**Solución para CUDA (Windows/Linux):**
 
 ```bash
-# Verificar instalación CUDA
+# 1. Verificar instalación CUDA
 nvidia-smi
 
-# Reinstalar llama-cpp-python con soporte CUDA
+# 2. Desinstalar PyTorch CPU-only
+pip uninstall torch torchvision torchaudio
+
+# 3. Instalar PyTorch con CUDA
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# 4. Verificar instalación
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# 5. Si es necesario, reinstalar llama-cpp-python
 pip uninstall llama-cpp-python
 pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
@@ -521,6 +569,20 @@ uname -m  # Debe mostrar 'arm64'
 
 # Reinstalar con soporte Metal
 pip install llama-cpp-python --force-reinstall --no-cache-dir
+```
+
+**Verificación completa:**
+
+```bash
+# Verificar hardware detectado
+python -c "
+import torch
+print(f'CUDA available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'CUDA devices: {torch.cuda.device_count()}')
+    print(f'Current device: {torch.cuda.current_device()}')
+    print(f'Device name: {torch.cuda.get_device_name(0)}')
+"
 ```
 
 ## Contribuir

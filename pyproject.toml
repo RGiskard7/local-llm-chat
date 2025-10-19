@@ -41,6 +41,12 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+cuda = [
+    "torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu121",
+]
+cuda118 = [
+    "torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu118",
+]
 
 [project.urls]
 Homepage = "https://github.com/RGiskard7/local-llm-chat"
