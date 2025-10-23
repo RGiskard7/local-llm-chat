@@ -4,10 +4,32 @@ Maneja toda la interacción del usuario y procesamiento de comandos
 """
 
 import os
+import asyncio
 from huggingface_hub import hf_hub_download, HfApi
 
 from .client import UniversalChatClient
 from .utils import list_local_models, show_available_models, show_help
+
+# RAG imports - lazy loading (solo se carga cuando se usa /rag)
+RAG_AVAILABLE = False
+RAGManager = None
+
+def _check_rag_availability():
+    """Check if RAG dependencies are available (lazy check)"""
+    global RAG_AVAILABLE, RAGManager
+    if RAGManager is not None:
+        return RAG_AVAILABLE
+    
+    try:
+        from .rag_integration import RAGManager as _RAGManager
+        RAGManager = _RAGManager
+        RAG_AVAILABLE = True
+        return True
+    except ImportError as e:
+        RAG_AVAILABLE = False
+        print(f"[INFO] RAG no disponible: {e}")
+        print("[INFO] Instala con: pip install raganything magic-pdf[full] sentence-transformers")
+        return False
 
 
 def run_cli():
@@ -134,6 +156,9 @@ def run_cli():
 
     # Caché para recomendaciones (para evitar volver a consultar en /download)
     cached_recommendations = []
+    
+    # RAG Manager - lazy loading (solo se inicializa cuando se usa /rag)
+    rag_manager = None
 
     try:
         while True:
@@ -278,15 +303,71 @@ def run_cli():
 
                 client.change_model(model_path)
                 continue
+            
+            # Comandos RAG
+            elif user_input.lower().startswith('/rag '):
+                # Inicializar RAG solo cuando se necesita (lazy loading)
+                if rag_manager is None:
+                    if not _check_rag_availability():
+                        continue
+                    
+                    try:
+                        print("\n[RAG] Inicializando RAG-Anything (primera vez)...")
+                        rag_manager = RAGManager(client, backend="raganything")
+                        print("[RAG] Sistema listo!")
+                    except Exception as e:
+                        print(f"[ERROR] RAG initialization failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
+                
+                file_path = user_input[5:].strip()
+                if not file_path:
+                    print("[ERROR] Usage: /rag <file_path>")
+                    print("[INFO] Example: /rag document.pdf")
+                    continue
+                
+                rag_manager.load_document(file_path)
+                continue
+            
+            elif user_input.lower() == '/ragstatus':
+                if rag_manager is None:
+                    print("[RAG] RAG no inicializado. Usa /rag <file> primero.")
+                    continue
+                    
+                status = rag_manager.get_status()
+                print(f"[RAG] Backend: {status.get('backend')}")
+                print(f"[RAG] Documento: {status.get('document', 'Ninguno')}")
+                print(f"[RAG] Working dir: {status.get('working_dir')}")
+                continue
+            
+            elif user_input.lower() == '/disablerag':
+                if rag_manager and rag_manager.current_document:
+                    rag_manager.current_document = None
+                    print("[RAG] RAG desactivado. Respuestas sin contexto documental.")
+                else:
+                    print("[RAG] RAG ya está desactivado o no inicializado.")
+                continue
 
             elif not user_input:
                 continue
 
-            # Generar respuesta
+            # Generar respuesta (con RAG si está activo)
             print(f"\n[{client.model_type.upper()}]", end=" ", flush=True)
             try:
-                response = client.infer(user_input)
-                print(response)
+                # Si RAG está inicializado y hay un documento cargado, usar RAG
+                if rag_manager and rag_manager.current_document:
+                    response = rag_manager.query(user_input)
+                    if response:
+                        print(response)
+                    else:
+                        # Fallback a respuesta normal si RAG falla
+                        response = client.infer(user_input)
+                        print(response)
+                else:
+                    # Respuesta normal sin RAG
+                    response = client.infer(user_input)
+                    print(response)
             except Exception as e:
                 print(f"\n[ERROR] Generation failed: {e}")
 
