@@ -21,7 +21,7 @@ def _check_rag_availability():
         return RAG_AVAILABLE
     
     try:
-        from .rag_integration import RAGManager as _RAGManager
+        from .rag import RAGManager as _RAGManager
         RAGManager = _RAGManager
         RAG_AVAILABLE = True
         return True
@@ -304,49 +304,103 @@ def run_cli():
                 client.change_model(model_path)
                 continue
             
-            # Comandos RAG
-            elif user_input.lower().startswith('/rag '):
+            # Comandos RAG profesionales
+            elif user_input.lower().startswith('/load '):
                 # Inicializar RAG solo cuando se necesita (lazy loading)
                 if rag_manager is None:
                     if not _check_rag_availability():
                         continue
                     
                     try:
-                        print("\n[RAG] Inicializando RAG-Anything (primera vez)...")
-                        rag_manager = RAGManager(client, backend="raganything")
-                        print("[RAG] Sistema listo!")
+                        print("\n[RAG] Initializing SimpleRAG (FAST - no knowledge graph)...")
+                        rag_manager = RAGManager(client, backend="simple")
+                        print("[RAG] System ready!")
                     except Exception as e:
                         print(f"[ERROR] RAG initialization failed: {e}")
                         import traceback
                         traceback.print_exc()
                         continue
                 
-                file_path = user_input[5:].strip()
+                file_path = user_input[6:].strip()
                 if not file_path:
-                    print("[ERROR] Usage: /rag <file_path>")
-                    print("[INFO] Example: /rag document.pdf")
+                    print("[ERROR] Usage: /load <file_path>")
+                    print("[INFO] Example: /load document.pdf")
                     continue
                 
                 rag_manager.load_document(file_path)
                 continue
             
-            elif user_input.lower() == '/ragstatus':
+            elif user_input.lower().startswith('/unload '):
                 if rag_manager is None:
-                    print("[RAG] RAG no inicializado. Usa /rag <file> primero.")
+                    print("[RAG] RAG not initialized. Use /load <file> first.")
+                    continue
+                
+                file_path = user_input[8:].strip()
+                if not file_path:
+                    print("[ERROR] Usage: /unload <file_path>")
+                    continue
+                
+                rag_manager.unload_document(file_path)
+                continue
+            
+            elif user_input.lower() == '/list':
+                if rag_manager is None:
+                    print("[RAG] RAG not initialized. No documents loaded.")
+                    continue
+                
+                documents = rag_manager.list_documents()
+                if documents:
+                    print(f"[RAG] Loaded documents ({len(documents)}):")
+                    for doc in documents:
+                        print(f"  - {os.path.basename(doc)}")
+                else:
+                    print("[RAG] No documents loaded")
+                continue
+            
+            elif user_input.lower() == '/clear':
+                if rag_manager is None:
+                    print("[RAG] No documents to clear")
+                    continue
+                
+                rag_manager.clear_all_documents()
+                print("[RAG] All documents cleared")
+                continue
+            
+            elif user_input.lower() == '/rag on':
+                if rag_manager is None:
+                    print("[RAG] RAG not initialized. Use /load <file> first.")
+                    continue
+                
+                if not rag_manager.current_document:
+                    print("[RAG] No documents loaded. Use /load <file> first.")
+                    continue
+                
+                rag_manager.rag_mode = True
+                print("[RAG] ✓ RAG mode activated - will search in documents")
+                continue
+            
+            elif user_input.lower() == '/rag off':
+                if rag_manager is None:
+                    print("[RAG] RAG not initialized")
+                    continue
+                
+                rag_manager.rag_mode = False
+                print("[RAG] ✓ RAG mode deactivated - using base knowledge only")
+                continue
+            
+            elif user_input.lower() == '/status':
+                if rag_manager is None:
+                    print("[RAG] RAG not initialized")
                     continue
                     
                 status = rag_manager.get_status()
                 print(f"[RAG] Backend: {status.get('backend')}")
-                print(f"[RAG] Documento: {status.get('document', 'Ninguno')}")
+                print(f"[RAG] Mode: {'ON' if status.get('rag_mode') else 'OFF'}")
+                print(f"[RAG] Documents loaded: {status.get('document_count', 0)}")
+                if status.get('documents'):
+                    for doc in status['documents']:
+                        print(f"  - {os.path.basename(doc)}")
                 print(f"[RAG] Working dir: {status.get('working_dir')}")
-                continue
-            
-            elif user_input.lower() == '/disablerag':
-                if rag_manager and rag_manager.current_document:
-                    rag_manager.current_document = None
-                    print("[RAG] RAG desactivado. Respuestas sin contexto documental.")
-                else:
-                    print("[RAG] RAG ya está desactivado o no inicializado.")
                 continue
 
             elif not user_input:
@@ -355,21 +409,54 @@ def run_cli():
             # Generar respuesta (con RAG si está activo)
             print(f"\n[{client.model_type.upper()}]", end=" ", flush=True)
             try:
-                # Si RAG está inicializado y hay un documento cargado, usar RAG
-                if rag_manager and rag_manager.current_document:
-                    response = rag_manager.query(user_input)
-                    if response:
+                # Si RAG está activo Y hay documentos cargados, usar RAG
+                if rag_manager and rag_manager.rag_mode and rag_manager.current_document:
+                    # ARQUITECTURA CORRECTA: RAG → Context → LLM
+                    
+                    # 1. Buscar contexto relevante (sin LLM)
+                    rag_result = rag_manager.search_context(user_input, top_k=3)
+                    
+                    # 2. Verificar si hay contexto útil
+                    if rag_result and rag_result.get("contexts"):
+                        # Construir prompt con contexto
+                        contexts = rag_result["contexts"]
+                        sources = rag_result.get("sources", [])
+                        scores = rag_result.get("relevance_scores", [])
+                        
+                        # Mostrar info de retrieval
+                        print(f"[RAG] {len(contexts)} chunks retrieved (scores: {[f'{s:.2f}' for s in scores[:3]]})")
+                        
+                        # Formatear contexto
+                        context_str = "\n\n---\n\n".join(contexts)
+                        
+                        # Construir prompt RAG
+                        rag_prompt = f"""Basándote EXCLUSIVAMENTE en el siguiente contexto del documento, responde la pregunta del usuario.
+
+                        Si la información no está en el contexto, di claramente "No encuentro esa información en el documento".
+
+                        CONTEXTO DEL DOCUMENTO:
+                        {context_str}
+
+                        PREGUNTA: {user_input}
+
+                        RESPUESTA:"""
+                        
+                        # 3. Llamar al LLM con el contexto
+                        response = client.infer(rag_prompt, max_tokens=512)
                         print(response)
                     else:
-                        # Fallback a respuesta normal si RAG falla
+                        # Sin contexto relevante, respuesta normal con disclaimer
+                        print("[RAG] No relevant context found. Responding without context...")
                         response = client.infer(user_input)
                         print(response)
                 else:
-                    # Respuesta normal sin RAG
+                    # Respuesta normal sin RAG (rag_mode OFF o sin documentos)
                     response = client.infer(user_input)
                     print(response)
             except Exception as e:
                 print(f"\n[ERROR] Generation failed: {e}")
+                import traceback
+                traceback.print_exc()
 
     except KeyboardInterrupt:
         print("\n\n[INTERRUPT] Received shutdown signal")
