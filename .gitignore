@@ -88,3 +88,7 @@ Temporary Items
 pip-wheel-metadata/
 
 doc/
+
+rag_data/
+
+simple_rag_data/

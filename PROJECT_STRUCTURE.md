@@ -6,20 +6,27 @@
 local-llm-chat/
 │
 ├── src/local_llm_chat/       # Paquete principal
-│   ├── __init__.py              # API del paquete (exporta UniversalChatClient, etc.)
-│   ├── __main__.py              # Punto de entrada para `python -m chat_ia`
+│   ├── __init__.py              # API del paquete (exporta UniversalChatClient, Config, etc.)
+│   ├── __main__.py              # Punto de entrada para `python -m local_llm_chat`
 │   ├── client.py                # Clase UniversalChatClient (lógica de negocio principal)
 │   ├── cli.py                   # Interfaz CLI y procesamiento de comandos
 │   ├── utils.py                 # Funciones de utilidad (descubrimiento de modelos, ayuda)
 │   ├── model_config.py          # Detección y configuración de modelos
-│   └── prompts.py               # Presets de system prompts
+│   ├── prompts.py               # Presets de system prompts
+│   ├── config.py                # Sistema de configuración centralizada
+│   ├── config.json              # Configuración por defecto (RAG y LLM)
+│   └── rag/                     # Módulo RAG
+│       ├── __init__.py          # API del módulo RAG
+│       ├── base.py              # Clase abstracta RAGBackend
+│       ├── simple.py            # SimpleRAG (ChromaDB, rápido)
+│       ├── raganything_backend.py  # RAGAnything (knowledge graph, complejo)
+│       └── manager.py           # RAGManager (orquestador)
 │
 ├── tests/                    # Pruebas unitarias
 │   ├── __init__.py
 │   └── test_model_config.py     # Pruebas de detección de modelos
 │
-├── doc/                      # Documentación
-│   ├── *.md                     # Varios archivos de documentación
+├── doc/                      # Documentación histórica
 │   └── ...
 │
 ├── models/                   # Modelos GGUF descargados (gitignored)
@@ -28,18 +35,25 @@ local-llm-chat/
 ├── chat_logs/                # Registros de sesiones (gitignored)
 │   └── *.json
 │
-├── main.py                   # Punto de entrada simple (10 líneas)
+├── simple_rag_data/          # Datos de SimpleRAG (gitignored)
+│   ├── chroma.sqlite3           # Base de datos ChromaDB
+│   └── rag_metadata.json        # Metadatos de documentos cargados
+│
+├── rag_data/                 # Datos de RAG-Anything (gitignored)
+│   └── ...
+│
+├── main.py                   # Punto de entrada simple
 ├── pyproject.toml            # Empaquetado moderno de Python
 ├── requirements.txt          # Dependencias
 ├── .gitignore                # Reglas de git ignore
 │
 ├── README.md                 # Documentación principal
-├── PROJECT_STRUCTURE.md     # Este archivo
+├── PROJECT_STRUCTURE.md      # Este archivo
+├── CONFIG.md                 # Guía de configuración
+├── changelog.md              # Registro de cambios
+├── config.example.json       # Ejemplo de configuración personalizada
 │
-├── verify_installation.py   # Script de verificación de instalación
-│
-├── model_config.py           # (Legacy - se puede eliminar)
-└── prompts.py                # (Legacy - se puede eliminar)
+└── verify_installation.py   # Script de verificación de instalación
 ```
 
 ## Responsabilidades de Archivos
@@ -49,12 +63,23 @@ local-llm-chat/
 | Archivo | Líneas | Responsabilidad |
 |------|-------|---------------|
 | `client.py` | ~410 | Clase UniversalChatClient, gestión de conversaciones, carga de modelos |
-| `cli.py` | ~300 | Interfaz CLI, procesamiento de comandos, interacción del usuario |
+| `cli.py` | ~500 | Interfaz CLI, procesamiento de comandos, interacción del usuario, RAG workflow |
 | `utils.py` | ~110 | Funciones auxiliares (listado de modelos, recomendaciones, ayuda) |
 | `model_config.py` | ~410 | Detección de tipo de modelo, mapeo de formato de chat, detección de hardware |
 | `prompts.py` | ~50 | Presets de system prompts (coding, creative, etc.) |
-| `__init__.py` | ~25 | Inicialización del paquete, exportaciones de API pública |
+| `config.py` | ~170 | Sistema de configuración centralizada (RAG y LLM) |
+| `__init__.py` | ~30 | Inicialización del paquete, exportaciones de API pública |
 | `__main__.py` | ~7 | Punto de entrada para ejecución de módulo |
+
+### Módulo RAG (`src/local_llm_chat/rag/`)
+
+| Archivo | Líneas | Responsabilidad |
+|------|-------|---------------|
+| `base.py` | ~80 | Clase abstracta RAGBackend, define interfaz común |
+| `simple.py` | ~400 | SimpleRAG con ChromaDB, rápido para CPU |
+| `raganything_backend.py` | ~400 | RAG-Anything con knowledge graph, para GPU |
+| `manager.py` | ~150 | RAGManager, orquestador de backends |
+| `__init__.py` | ~10 | API pública del módulo RAG |
 
 ### Puntos de Entrada
 

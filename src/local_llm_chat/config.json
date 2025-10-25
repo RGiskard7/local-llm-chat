@@ -1,0 +1,15 @@
+{
+  "rag": {
+    "chunk_size": 150,
+    "chunk_overlap": 25,
+    "top_k": 1,
+    "max_context_tokens": 800
+  },
+  "llm": {
+    "max_tokens": 256,
+    "temperature": 0.1,
+    "top_p": 0.9,
+    "repeat_penalty": 1.1
+  }
+}
+

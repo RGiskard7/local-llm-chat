@@ -13,6 +13,11 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente. Soporta **m
 - **Detección Automática**: Reconoce el tipo de modelo y adapta el formato de chat automáticamente
 - **System Prompts Inteligentes**: Maneja modelos con y sin soporte nativo de system prompt
 - **Consciente del Hardware**: Recomienda modelos óptimos según RAM/VRAM disponible
+- **RAG (Retrieval-Augmented Generation)**: Dos backends para Q&A sobre documentos
+  - SimpleRAG: ChromaDB, rápido, optimizado para CPU
+  - RAG-Anything: Knowledge graph, complejo, para GPU
+- **Configuración Centralizada**: Sistema híbrido (código, JSON, env vars)
+- **Persistencia de Documentos**: RAG recuerda documentos entre sesiones
 - **Gestión de Sesiones**: Registro automático de conversaciones con métricas completas
 - **Presets Configurables**: System prompts preconfigurados para diferentes casos de uso
 - **Cambio Dinámico de Modelos**: Cambia entre modelos sin perder configuración
@@ -215,6 +220,25 @@ client.save_log()
 | `/preset <name>` | Cargar preset preconfigurado |
 | `/presets` | Listar presets disponibles |
 
+### RAG (Document Q&A)
+
+| Comando | Descripción |
+|---------|-------------|
+| `/load <file>` | Cargar documento en RAG |
+| `/unload <file>` | Eliminar documento del RAG |
+| `/list` | Listar documentos cargados |
+| `/clear` | Limpiar todos los documentos |
+| `/rag on` | Activar modo RAG |
+| `/rag off` | Desactivar modo RAG |
+| `/status` | Estado del sistema RAG |
+
+**Workflow RAG:**
+1. `/load documento.pdf` - Carga documento
+2. `/rag on` - Activa búsqueda en documentos
+3. Hacer preguntas - El sistema busca contexto relevante
+4. `/rag off` - Desactiva RAG (chat libre)
+5. Documentos persisten entre sesiones
+
 ## Uso como Biblioteca
 
 ### Ejemplo Básico
@@ -370,13 +394,24 @@ local-llm-chat/
 │   ├── cli.py                # Interfaz de línea de comandos
 │   ├── model_config.py       # Detección y configuración de modelos
 │   ├── prompts.py            # System prompts preconfigurados
-│   └── utils.py              # Funciones auxiliares
+│   ├── utils.py              # Funciones auxiliares
+│   ├── config.py             # Sistema de configuración
+│   ├── config.json           # Configuración por defecto
+│   └── rag/                  # Módulo RAG
+│       ├── base.py           # Interfaz RAGBackend
+│       ├── simple.py         # SimpleRAG (ChromaDB)
+│       ├── raganything_backend.py  # RAG-Anything
+│       └── manager.py        # RAGManager
 ├── tests/                    # Suite de pruebas
 ├── models/                   # Modelos GGUF (gitignored)
 ├── chat_logs/                # Registros de sesiones (gitignored)
+├── simple_rag_data/          # Datos SimpleRAG (gitignored)
+├── rag_data/                 # Datos RAG-Anything (gitignored)
 ├── main.py                   # Punto de entrada principal
 ├── pyproject.toml            # Configuración del paquete
-└── requirements.txt          # Dependencias
+├── requirements.txt          # Dependencias
+├── CONFIG.md                 # Guía de configuración
+└── changelog.md              # Historial de cambios
 ```
 
 Ver [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) para más detalles.
@@ -637,8 +672,10 @@ in the Software without restriction...
 
 ### Versión 1.1
 
+- [x] Soporte RAG (Retrieval-Augmented Generation)
+- [x] Sistema de configuración centralizada
+- [x] Persistencia de documentos RAG entre sesiones
 - [ ] Interfaz web con Gradio
-- [ ] Soporte para conversaciones multi-modelo
 - [ ] Exportar conversaciones a Markdown/PDF
 
 ### Versión 1.2
@@ -646,12 +683,13 @@ in the Software without restriction...
 - [ ] API REST con FastAPI
 - [ ] Sistema de plugins
 - [ ] Integración con Langchain
+- [ ] Soporte para conversaciones multi-modelo
 
 ### Versión 2.0
 
-- [ ] Soporte RAG (Retrieval-Augmented Generation)
 - [ ] Fine-tuning de modelos locales
 - [ ] Suite de benchmarking integrada
+- [ ] Soporte multimodal (imágenes, audio)
 
 ## Contacto y Soporte
 

@@ -1,0 +1,24 @@
+Documento de Prueba para RAG
+
+Este es un documento de prueba para demostrar las capacidades de RAG (Retrieval Augmented Generation).
+
+Sección 1: Información General
+-------------------------------
+El sistema RAG permite que el modelo de lenguaje responda preguntas basándose en documentos específicos.
+Esto mejora significativamente la precisión y relevancia de las respuestas.
+
+Sección 2: Características Principales
+---------------------------------------
+1. Búsqueda semántica: El sistema encuentra información relevante automáticamente
+2. Contexto mejorado: Las respuestas se basan en el contenido del documento
+3. Reducción de alucinaciones: El modelo se apoya en información verificable
+
+Sección 3: Conclusión Importante
+---------------------------------
+La conclusión más importante es que RAG combina lo mejor de dos mundos:
+la capacidad de comprensión del lenguaje natural de los LLMs con la precisión
+de consultar información específica de documentos.
+
+Dato clave: RAG es especialmente útil para aplicaciones empresariales donde
+la precisión y la trazabilidad de la información son críticas.
+
