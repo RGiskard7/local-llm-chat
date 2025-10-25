@@ -7,6 +7,7 @@ una interfaz uniforme.
 from typing import Dict, List, Optional
 
 from .base import RAGBackend
+from ..config import Config
 
 
 class RAGManager:
@@ -38,7 +39,7 @@ class RAGManager:
         "raganything": None,  # Se carga dinámicamente
     }
     
-    def __init__(self, client, backend: str = "simple", working_dir: Optional[str] = None):
+    def __init__(self, client, backend: str = "simple", working_dir: Optional[str] = None, config: Optional[Config] = None):
         """
         Inicializa el RAGManager con el backend seleccionado
         
@@ -46,10 +47,12 @@ class RAGManager:
             client: Cliente LLM (solo necesario para raganything)
             backend: Nombre del backend ("simple" o "raganything")
             working_dir: Directorio de trabajo (None = usar default del backend)
+            config: Configuración opcional (usa default si None)
         """
         self.client = client
         self.backend_name = backend
         self.rag_mode = False  # RAG desactivado por defecto
+        self.config = config or Config()  # Configuración
         
         if backend not in self.AVAILABLE_BACKENDS:
             raise ValueError(
@@ -69,8 +72,8 @@ class RAGManager:
             if working_dir is None:
                 working_dir = "./rag_data"
         
-        # Inicializar el backend seleccionado
-        self.backend: RAGBackend = backend_class(client, working_dir)
+        # Inicializar el backend seleccionado (pasando configuración)
+        self.backend: RAGBackend = backend_class(client, working_dir, config=self.config)
     
     def load_document(self, file_path: str) -> bool:
         """

@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from .base import RAGBackend
+from ..config import Config
 
 
 class SimpleRAG(RAGBackend):
@@ -27,19 +28,23 @@ class SimpleRAG(RAGBackend):
     - Query: < 1 segundo
     """
     
-    def __init__(self, client=None, working_dir: str = "./simple_rag_data"):
+    def __init__(self, client=None, working_dir: str = "./simple_rag_data", config: Optional[Config] = None):
         """
         Inicializa SimpleRAG
         
         Args:
             client: DEPRECATED - No se necesita, se mantiene por compatibilidad
             working_dir: Directorio para almacenar datos de ChromaDB
+            config: Configuración opcional (usa default si None)
         """
         # Client se mantiene por compatibilidad pero no se usa
         self.client = client  
         self.working_dir = working_dir
         self.metadata_file = os.path.join(working_dir, "rag_metadata.json")
         self.collection = None
+        
+        # Configuración (usa default si no se provee)
+        self.config = config or Config()
         
         os.makedirs(working_dir, exist_ok=True)
         
@@ -162,9 +167,13 @@ class SimpleRAG(RAGBackend):
             # Extraer texto del PDF
             text = self._extract_text(file_path)
             
-            # Dividir en chunks
-            chunks = self._chunk_text(text, chunk_size=500, overlap=50)
-            print(f"[SimpleRAG] {len(chunks)} chunks created")
+            # Dividir en chunks (usando configuración)
+            chunks = self._chunk_text(
+                text, 
+                chunk_size=self.config.rag.chunk_size,
+                overlap=self.config.rag.chunk_overlap
+            )
+            print(f"[SimpleRAG] {len(chunks)} chunks created (size: {self.config.rag.chunk_size} words)")
             
             # Generar embeddings
             print(f"[SimpleRAG] Generating embeddings...")
@@ -270,14 +279,14 @@ class SimpleRAG(RAGBackend):
             traceback.print_exc()
             return False
     
-    def search_context(self, question: str, top_k: int = 3, **kwargs) -> Dict:
+    def search_context(self, question: str, top_k: Optional[int] = None, **kwargs) -> Dict:
         """
         Busca contexto relevante para una pregunta (SIN llamar al LLM)
         Busca en TODOS los documentos cargados
         
         Args:
             question: Pregunta del usuario
-            top_k: Número de chunks a retornar
+            top_k: Número de chunks a retornar (usa config.rag.top_k si None)
             **kwargs: Parámetros adicionales ignorados (compatibilidad)
             
         Returns:
@@ -292,8 +301,12 @@ class SimpleRAG(RAGBackend):
             print("[SimpleRAG ERROR] No documents loaded")
             return {"contexts": [], "sources": [], "relevance_scores": []}
         
+        # Usar configuración si top_k no se especifica
+        if top_k is None:
+            top_k = self.config.rag.top_k
+        
         try:
-            print(f"[SimpleRAG] 🔍 Searching for relevant context...")
+            print(f"[SimpleRAG] Searching for relevant context (top_k={top_k})...")
             
             # Embedding de la pregunta
             question_embedding = self.embed_model.encode([question])[0]

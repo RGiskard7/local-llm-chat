@@ -16,6 +16,7 @@ from .model_config import (
     list_popular_models,
     get_hardware_info,
 )
+from .config import Config, RAGConfig, LLMConfig
 
 __all__ = [
     "UniversalChatClient",
@@ -25,4 +26,7 @@ __all__ = [
     "get_model_info",
     "list_popular_models",
     "get_hardware_info",
+    "Config",
+    "RAGConfig",
+    "LLMConfig",
 ]

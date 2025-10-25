@@ -4,11 +4,13 @@ Maneja toda la interacción del usuario y procesamiento de comandos
 """
 
 import os
+import json
 import asyncio
 from huggingface_hub import hf_hub_download, HfApi
 
 from .client import UniversalChatClient
 from .utils import list_local_models, show_available_models, show_help
+from .config import Config
 
 # RAG imports - lazy loading (solo se carga cuando se usa /rag)
 RAG_AVAILABLE = False
@@ -157,8 +159,36 @@ def run_cli():
     # Caché para recomendaciones (para evitar volver a consultar en /download)
     cached_recommendations = []
     
-    # RAG Manager - lazy loading (solo se inicializa cuando se usa /rag)
+    # Configuración global
+    config = Config()
+    
+    # RAG Manager - inicialización automática si hay documentos de sesiones previas
     rag_manager = None
+    
+    # Verificar si hay documentos cargados de sesiones anteriores
+    def _check_existing_documents():
+        """Verifica si hay documentos cargados de sesiones anteriores"""
+        try:
+            metadata_file = os.path.join("./simple_rag_data", "rag_metadata.json")
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r') as f:
+                    data = json.load(f)
+                    docs = data.get('loaded_documents', [])
+                    return len(docs) > 0, docs
+        except:
+            pass
+        return False, []
+    
+    # Auto-inicializar RAG si hay documentos previos
+    has_docs, doc_list = _check_existing_documents()
+    if has_docs:
+        if _check_rag_availability():
+            try:
+                print(f"\n[RAG] Found {len(doc_list)} document(s) from previous session")
+                rag_manager = RAGManager(client, backend="simple", config=config)
+                print("[RAG] System ready. Use '/rag on' to activate RAG mode")
+            except Exception as e:
+                print(f"[ERROR] RAG auto-initialization failed: {e}")
 
     try:
         while True:
@@ -313,7 +343,8 @@ def run_cli():
                     
                     try:
                         print("\n[RAG] Initializing SimpleRAG (FAST - no knowledge graph)...")
-                        rag_manager = RAGManager(client, backend="simple")
+                        print(f"[RAG] Using config: chunk_size={config.rag.chunk_size}, top_k={config.rag.top_k}")
+                        rag_manager = RAGManager(client, backend="simple", config=config)
                         print("[RAG] System ready!")
                     except Exception as e:
                         print(f"[ERROR] RAG initialization failed: {e}")
@@ -367,10 +398,24 @@ def run_cli():
                 continue
             
             elif user_input.lower() == '/rag on':
+                # Si RAG no está inicializado, intentar inicializar si hay documentos
                 if rag_manager is None:
-                    print("[RAG] RAG not initialized. Use /load <file> first.")
-                    continue
+                    has_docs, doc_list = _check_existing_documents()
+                    if has_docs:
+                        if not _check_rag_availability():
+                            continue
+                        try:
+                            print(f"\n[RAG] Initializing with {len(doc_list)} existing document(s)...")
+                            rag_manager = RAGManager(client, backend="simple", config=config)
+                            print("[RAG] System ready!")
+                        except Exception as e:
+                            print(f"[ERROR] RAG initialization failed: {e}")
+                            continue
+                    else:
+                        print("[RAG] No documents loaded. Use /load <file> first.")
+                        continue
                 
+                # Verificar que hay documentos cargados
                 if not rag_manager.current_document:
                     print("[RAG] No documents loaded. Use /load <file> first.")
                     continue
@@ -429,6 +474,12 @@ def run_cli():
                         # Formatear contexto
                         context_str = "\n\n---\n\n".join(contexts)
                         
+                        # Limitar contexto según configuración
+                        context_words = context_str.split()
+                        if len(context_words) > config.rag.max_context_tokens:
+                            context_str = " ".join(context_words[:config.rag.max_context_tokens]) + "..."
+                            print(f"[RAG] Context limited to {config.rag.max_context_tokens} words")
+                        
                         # Construir prompt RAG
                         rag_prompt = f"""Basándote EXCLUSIVAMENTE en el siguiente contexto del documento, responde la pregunta del usuario.
 
@@ -441,8 +492,13 @@ def run_cli():
 
                         RESPUESTA:"""
                         
-                        # 3. Llamar al LLM con el contexto
-                        response = client.infer(rag_prompt, max_tokens=512)
+                        # 3. Llamar al LLM con el contexto (usando configuración)
+                        response = client.infer(
+                            rag_prompt, 
+                            max_tokens=config.llm.max_tokens,
+                            temperature=config.llm.temperature,
+                            top_p=config.llm.top_p
+                        )
                         print(response)
                     else:
                         # Sin contexto relevante, respuesta normal con disclaimer

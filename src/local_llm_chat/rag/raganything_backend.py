@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from .base import RAGBackend
+from ..config import Config
 
 
 class RAGAnythingBackend(RAGBackend):
@@ -30,11 +31,14 @@ class RAGAnythingBackend(RAGBackend):
     Es más lento pero mucho más preciso para queries complejas.
     """
     
-    def __init__(self, client, working_dir: str = "./rag_data"):
+    def __init__(self, client, working_dir: str = "./rag_data", config: Optional[Config] = None):
         self.client = client
         self.working_dir = working_dir
         self.metadata_file = os.path.join(working_dir, "rag_metadata.json")
         self.rag = None
+        
+        # Configuración (usa default si no se provee)
+        self.config = config or Config()
         
         # Lock para proteger acceso concurrente al modelo LLM (llama-cpp no es thread-safe)
         import asyncio

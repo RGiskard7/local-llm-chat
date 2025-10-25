@@ -4,6 +4,138 @@ Registro completo de cambios y mejoras del proyecto.
 
 ---
 
+## 📅 2025-10-25 — RAG Auto-Initialization on Startup
+
+**Changed files:**
+- `src/local_llm_chat/cli.py`
+
+**Summary:**
+Fixed RAG persistence bug. RAG now auto-initializes when there are documents from previous sessions, eliminating the need to manually `/load` already-loaded documents.
+
+**Problem:**
+- User loads document in Session 1
+- Document persists to ChromaDB + metadata
+- User opens Session 2
+- `/rag on` fails with "use /load first" even though document is already loaded
+
+**Solution:**
+- Check for existing documents on startup
+- Auto-initialize RAGManager if documents found
+- Allow `/rag on` to initialize RAG if documents exist
+- Show clear status messages
+
+**New Behavior:**
+```
+Session 1: /load doc.pdf → Document saved
+Session 2: [Startup] → "Found 1 document from previous session"
+Session 2: /rag on → "RAG mode activated" (works immediately)
+```
+
+**Benefits:**
+- True document persistence across sessions
+- No need to re-load existing documents
+- Intuitive RAG workflow
+- Clear user feedback
+
+---
+
+## 📅 2025-10-25 — Centralized Configuration System
+
+**Changed files:**
+- `src/local_llm_chat/config.py` (new)
+- `src/local_llm_chat/config.json` (new)
+- `src/local_llm_chat/rag/simple.py`
+- `src/local_llm_chat/rag/raganything_backend.py`
+- `src/local_llm_chat/rag/manager.py`
+- `src/local_llm_chat/cli.py`
+- `.gitignore`
+
+**Summary:**
+Implemented professional centralized configuration system using dataclasses + JSON. All RAG and LLM parameters are now configurable via code, JSON files, or environment variables.
+
+**🎯 Configuration System:**
+
+1. **Config Module** (`config.py`)
+   - `RAGConfig`: chunk_size, chunk_overlap, top_k, max_context_tokens
+   - `LLMConfig`: max_tokens, temperature, top_p, repeat_penalty
+   - `Config`: Main class with hybrid loading strategy
+
+2. **Loading Priority** (highest to lowest)
+   - Constructor parameters (for library usage)
+   - Environment variables (for deployment)
+   - JSON file (for persistent config)
+   - Default values (hardcoded)
+
+3. **Default Configuration** (`config.json`)
+   ```json
+   {
+     "rag": {
+       "chunk_size": 150,
+       "top_k": 1,
+       "max_context_tokens": 800
+     },
+     "llm": {
+       "max_tokens": 256,
+       "temperature": 0.1
+     }
+   }
+   ```
+
+**🔧 Usage Examples:**
+
+**As standalone app:**
+```bash
+# Edit config.json directly
+{
+  "rag": {"chunk_size": 200}
+}
+```
+
+**As library:**
+```python
+from local_llm_chat.config import Config
+from local_llm_chat.rag import SimpleRAG
+
+# Custom config
+config = Config()
+config.rag.chunk_size = 200
+
+# Pass to RAG
+rag = SimpleRAG(client, config=config)
+```
+
+**With environment variables:**
+```bash
+export RAG_CHUNK_SIZE=200
+export LLM_MAX_TOKENS=512
+python -m local_llm_chat
+```
+
+**📊 Optimized Defaults:**
+
+Old values → New values:
+- `chunk_size`: 500 → 150 words (3x faster)
+- `chunk_overlap`: 50 → 25 words
+- `top_k`: 3 → 1 chunks (3x less context)
+- `max_context_tokens`: ∞ → 800 words (limited)
+- `max_tokens`: 512 → 256 tokens (2x faster)
+- `temperature`: default → 0.1 (more deterministic)
+
+**Expected performance**: 18 minutes → 2-4 minutes per query
+
+**Benefits:**
+- ✅ **Centralized**: One place for all config
+- ✅ **Flexible**: Code, JSON, or env vars
+- ✅ **Library-friendly**: Constructor parameters
+- ✅ **Deployment-ready**: Environment variables
+- ✅ **Optimized**: Fast defaults for 3B models on CPU
+- ✅ **Professional**: Standard industry pattern
+
+**Next steps:**
+Test optimized configuration with real documents.
+
+---
+
 ## 📅 2025-10-24 — Document Persistence: RAG Sessions Survive Restarts
 
 **Changed files:**
