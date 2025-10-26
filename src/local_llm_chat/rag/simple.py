@@ -9,6 +9,9 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import chromadb
+from sentence_transformers import SentenceTransformer
+
 from .base import RAGBackend
 from ..config import Config
 
@@ -28,7 +31,12 @@ class SimpleRAG(RAGBackend):
     - Query: < 1 segundo
     """
     
-    def __init__(self, client=None, working_dir: str = "./simple_rag_data", config: Optional[Config] = None):
+    def __init__(
+        self, 
+        client=None, 
+        working_dir: str = "./simple_rag_data", 
+        config: Optional[Config] = None
+    ):
         """
         Inicializa SimpleRAG
         
@@ -49,9 +57,6 @@ class SimpleRAG(RAGBackend):
         os.makedirs(working_dir, exist_ok=True)
         
         try:
-            import chromadb
-            from sentence_transformers import SentenceTransformer
-            
             print("[SimpleRAG] Initializing...")
             
             # Modelo de embeddings
@@ -344,19 +349,39 @@ class SimpleRAG(RAGBackend):
         if file_path.endswith('.pdf'):
             try:
                 from pypdf import PdfReader
+                from pypdf.errors import PdfReadError
+
                 reader = PdfReader(file_path)
                 text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
+
+                # Procesar página por página con manejo de errores
+                for i, page in enumerate(reader.pages):
+                    try:
+                        page_text = page.extract_text()
+                        text += page_text + "\n"
+                    except (PdfReadError, Exception) as e:
+                        print(f"[WARNING] Error on page {i+1}: {str(e)[:100]}")
+                        print(f"[INFO] Skipping page {i+1}...")
+                        continue
+
+                if not text.strip():
+                    raise ValueError("Could not extract text from PDF (all pages failed)")
+
                 return text
+
             except ImportError:
                 print("[ERROR] pypdf not installed. Install: pip install pypdf")
                 raise
+            except Exception as e:
+                print(f"[ERROR] No se pudo procesar el PDF: {str(e)[:200]}")
+                print("[INFO] El PDF puede estar corrupto o tener un formato no estándar")
+                raise
+
         elif file_path.endswith('.txt'):
             with open(file_path, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
-            raise ValueError("Solo se soportan archivos .pdf y .txt")
+            raise ValueError("Only .pdf and .txt files are supported")
     
     def _chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
         """Divide texto en chunks con overlap"""

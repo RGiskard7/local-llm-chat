@@ -56,58 +56,50 @@ Para usar aceleración GPU en Windows/Linux con NVIDIA:
 
 ## Instalación
 
-### Instalación Estándar
-
 ```bash
-# Clonar el repositorio
+# 1. Clonar repositorio
 git clone https://github.com/RGiskard7/local-llm-chat.git
 cd local-llm-chat
 
-# Crear entorno virtual
+# 2. Crear entorno virtual
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
 
-# Instalar dependencias
-pip install -e .
-```
-
-### Instalación con Soporte CUDA (Windows/Linux)
-
-Para usar aceleración GPU con NVIDIA:
-
-```bash
-# 1. Instalar PyTorch con CUDA primero
-pip uninstall torch torchvision torchaudio  # Si ya está instalado
+# 3. SI TIENES GPU NVIDIA - Instalar PyTorch con CUDA PRIMERO:
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# 2. Verificar CUDA
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# 4. Instalar dependencias
+pip install -r requirements.txt
 
-# 3. Instalar el resto de dependencias
-pip install -e .
+# 5. Ejecutar
+python main.py
 ```
 
-**Nota**: Si CUDA 12.1 no funciona, prueba con CUDA 11.8:
+**Eso es todo.** Solo necesitas 3 dependencias:
+- `llama-cpp-python` - Modelos GGUF
+- `huggingface-hub` - Descargar modelos
+- `psutil` - Detectar hardware
+
+### (Opcional) Funcionalidad RAG
+
+Si quieres Q&A sobre documentos:
+
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu118
+pip install chromadb sentence-transformers pypdf
 ```
 
-### Desde PyPI
+Esto permite:
+- Cargar PDFs y TXT con `/load archivo.pdf`
+- Hacer preguntas sobre el contenido
+- Búsqueda semántica en documentos
+
+### Verificar CUDA (opcional)
 
 ```bash
-pip install local-llm-chat
-```
-
-### Verificar Instalación
-
-```bash
-python verify_installation.py
-```
-
-### Verificar CUDA (Windows/Linux)
-
-```bash
-python verify_cuda.py
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 
 ## Inicio Rápido

@@ -494,10 +494,8 @@ def run_cli():
                         
                         # 3. Llamar al LLM con el contexto (usando configuración)
                         response = client.infer(
-                            rag_prompt, 
-                            max_tokens=config.llm.max_tokens,
-                            temperature=config.llm.temperature,
-                            top_p=config.llm.top_p
+                            rag_prompt,
+                            max_tokens=config.llm.max_tokens
                         )
                         print(response)
                     else:
