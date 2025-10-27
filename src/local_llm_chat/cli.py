@@ -40,6 +40,9 @@ def run_cli():
     print("  UNIVERSAL CHAT CLIENT - TERMINAL INTERFACE")
     print("=" * 60)
 
+    # Cargar configuración (RESPONSABILIDAD DEL CLI, NO DEL CLIENT)
+    config = Config()
+
     # Mostrar modelos disponibles
     local_models = list_local_models()
     print("\nLOCAL MODELS:")
@@ -119,7 +122,14 @@ def run_cli():
             print(f"[SUCCESS] Model downloaded successfully!")
             print(f"[INFO] Loading model...")
 
-            client = UniversalChatClient(model_path=downloaded_path)
+            # Pasar configuración explícitamente
+            client = UniversalChatClient(
+                model_path=downloaded_path,
+                n_ctx=config.model.n_ctx,
+                n_gpu_layers=config.model.n_gpu_layers,
+                verbose=config.model.verbose,
+                llm_config=config.llm
+            )
 
         except Exception as e:
             print(f"[ERROR] Download failed: {e}")
@@ -140,7 +150,14 @@ def run_cli():
             model_path = local_models[int(choice) - 1]
             print(f"\n[INIT] Loading: {os.path.basename(model_path)}")
             try:
-                client = UniversalChatClient(model_path=model_path)
+                # Pasar configuración explícitamente
+                client = UniversalChatClient(
+                    model_path=model_path,
+                    n_ctx=config.model.n_ctx,
+                    n_gpu_layers=config.model.n_gpu_layers,
+                    verbose=config.model.verbose,
+                    llm_config=config.llm
+                )
             except Exception as e:
                 print(f"[ERROR] Failed to initialize: {e}")
                 return
@@ -158,10 +175,7 @@ def run_cli():
 
     # Caché para recomendaciones (para evitar volver a consultar en /download)
     cached_recommendations = []
-    
-    # Configuración global
-    config = Config()
-    
+
     # RAG Manager - inicialización automática si hay documentos de sesiones previas
     rag_manager = None
     
@@ -492,11 +506,9 @@ def run_cli():
 
                         RESPUESTA:"""
                         
-                        # 3. Llamar al LLM con el contexto (usando configuración)
-                        response = client.infer(
-                            rag_prompt,
-                            max_tokens=config.llm.max_tokens
-                        )
+                        # 3. Llamar al LLM con el contexto
+                        # Los parámetros se toman de config automáticamente
+                        response = client.infer(rag_prompt)
                         print(response)
                     else:
                         # Sin contexto relevante, respuesta normal con disclaimer

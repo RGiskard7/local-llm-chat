@@ -324,18 +324,28 @@ client.save_log()
 
 ## Configuración
 
+### Sistema de Configuración Centralizada
+
+El proyecto usa un sistema de configuración híbrido con tres secciones:
+
+1. **Model**: Parámetros de carga del modelo (n_ctx, n_gpu_layers, verbose)
+2. **LLM**: Parámetros de inferencia (max_tokens, temperature, top_p, etc.)
+3. **RAG**: Parámetros de documentos (chunk_size, top_k, etc.)
+
+Ver [CONFIG.md](CONFIG.md) para documentación completa.
+
 ### System Prompts Personalizados
 
-Editar `src/chat_ia/prompts.py`:
+Editar `src/local_llm_chat/prompts.py`:
 
 ```python
 PROMPTS = {
     "coding": """Eres un programador experto especializado en Python.
     Proporcionas código limpio, bien documentado y siguiendo PEP 8.""",
-    
+
     "creative": """Eres un escritor creativo. Generas contenido original,
     descriptivo y envolvente.""",
-    
+
     "tutor": """Eres un tutor paciente y didáctico. Explicas conceptos
     complejos de forma simple y con ejemplos prácticos.""",
 }
@@ -427,7 +437,7 @@ pip install pytest black mypy flake8
 pytest
 
 # Con cobertura
-pytest --cov=src/chat_ia
+pytest --cov=src/local_llm_chat
 
 # Tests específicos
 pytest tests/test_model_config.py
@@ -544,7 +554,7 @@ Las conversaciones se guardan automáticamente en `./chat_logs/` con formato JSO
 ### Error: Importación de Módulo
 
 ```bash
-ModuleNotFoundError: No module named 'chat_ia'
+ModuleNotFoundError: No module named 'local_llm_chat'
 ```
 
 **Soluciones:**
@@ -693,7 +703,7 @@ in the Software without restriction...
 - Versión actual: 1.0.0
 - Estado: Estable
 - Python: 3.8+
-- Última actualización: Octubre 2025
+- Última actualización: Enero 2025
 
 -----
 

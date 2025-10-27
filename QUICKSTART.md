@@ -95,12 +95,19 @@ python main.py
 ## Uso como Biblioteca
 
 ```python
-from local_llm_chat import UniversalChatClient
+from local_llm_chat import UniversalChatClient, Config
+
+# Cargar configuración
+config = Config()
 
 # Crear cliente
 client = UniversalChatClient(
     model_path="models/llama-3.1-8b-instruct.gguf",
-    system_prompt="Eres un asistente útil."
+    system_prompt="Eres un asistente útil.",
+    n_ctx=config.model.n_ctx,
+    n_gpu_layers=config.model.n_gpu_layers,
+    verbose=config.model.verbose,
+    llm_config=config.llm
 )
 
 # Generar respuesta
@@ -113,9 +120,9 @@ client.save_log()
 
 ## Documentación Adicional
 
-- **Documentación Completa**: Ver `README.md`
-- **Estructura del Proyecto**: Ver `PROJECT_STRUCTURE.md`
-- **Guía de Migración**: Ver `doc/18.10.2025/MIGRATION.md`
+- **Documentación Completa**: Ver [README.md](README.md)
+- **Configuración**: Ver [CONFIG.md](CONFIG.md)
+- **Estructura del Proyecto**: Ver [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
 - **Verificar Instalación**: Ejecutar `python verify_installation.py`
 
 ## Solución de Problemas

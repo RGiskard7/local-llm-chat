@@ -62,14 +62,15 @@ local-llm-chat/
 
 | Archivo | Líneas | Responsabilidad |
 |------|-------|---------------|
-| `client.py` | ~410 | Clase UniversalChatClient, gestión de conversaciones, carga de modelos |
-| `cli.py` | ~500 | Interfaz CLI, procesamiento de comandos, interacción del usuario, RAG workflow |
-| `utils.py` | ~110 | Funciones auxiliares (listado de modelos, recomendaciones, ayuda) |
+| `client.py` | ~500 | Clase UniversalChatClient, gestión de conversaciones, carga de modelos |
+| `cli.py` | ~535 | Interfaz CLI, procesamiento de comandos, interacción del usuario, RAG workflow |
+| `utils.py` | ~120 | Funciones auxiliares (listado de modelos, recomendaciones, ayuda) |
 | `model_config.py` | ~410 | Detección de tipo de modelo, mapeo de formato de chat, detección de hardware |
 | `prompts.py` | ~50 | Presets de system prompts (coding, creative, etc.) |
-| `config.py` | ~170 | Sistema de configuración centralizada (RAG y LLM) |
-| `__init__.py` | ~30 | Inicialización del paquete, exportaciones de API pública |
-| `__main__.py` | ~7 | Punto de entrada para ejecución de módulo |
+| `config.py` | ~200 | Sistema de configuración centralizada (Model, LLM, RAG) con soporte env vars |
+| `config.json` | ~20 | Configuración por defecto en formato JSON |
+| `__init__.py` | ~33 | Inicialización del paquete, exportaciones de API pública |
+| `__main__.py` | ~8 | Punto de entrada para ejecución de módulo |
 
 ### Módulo RAG (`src/local_llm_chat/rag/`)
 
@@ -173,10 +174,12 @@ Ventajas:
 
 1. **Separación de Responsabilidades**: Lógica de negocio separada de UI
 2. **Responsabilidad Única**: Cada módulo hace una cosa
-3. **DRY (Don't Repeat Yourself)**: Las utilidades son compartidas
-4. **Testeabilidad**: Funciones y clases puras
-5. **Extensibilidad**: Fácil de agregar nuevas interfaces (API, GUI)
-6. **Estándares Profesionales**: Sigue las mejores prácticas de empaquetado de Python
+3. **Dependency Injection**: Configuración inyectada, no cargada internamente
+4. **DRY (Don't Repeat Yourself)**: Las utilidades son compartidas
+5. **Testeabilidad**: Funciones y clases puras
+6. **Extensibilidad**: Fácil de agregar nuevas interfaces (API, GUI)
+7. **Estándares Profesionales**: Sigue las mejores prácticas de empaquetado de Python
+8. **Sin Hardcodeos**: Todo configurable mediante config.json o env vars
 
 ## Ejemplos de Uso
 
@@ -217,9 +220,13 @@ response = client.infer("Hola")
 ```python
 from local_llm_chat import (
     UniversalChatClient,
+    Config,
     detect_model_type,
     get_hardware_info,
 )
+
+# Cargar configuración
+config = Config()
 
 # Detectar modelo
 model_type = detect_model_type("mi-modelo.gguf")
@@ -228,8 +235,14 @@ model_type = detect_model_type("mi-modelo.gguf")
 hw = get_hardware_info()
 print(f"RAM: {hw['ram_available_gb']}GB")
 
-# Crear cliente
-client = UniversalChatClient(model_path="...")
+# Crear cliente con configuración
+client = UniversalChatClient(
+    model_path="...",
+    n_ctx=config.model.n_ctx,
+    n_gpu_layers=config.model.n_gpu_layers,
+    verbose=config.model.verbose,
+    llm_config=config.llm
+)
 ```
 
 ## Aseguramiento de Calidad

@@ -35,15 +35,39 @@ class UniversalChatClient:
     """
 
     def __init__(
-        self, 
-        model_key=None, 
-        model_path=None, 
-        repo_id=None, 
+        self,
+        model_key=None,
+        model_path=None,
+        repo_id=None,
         filename=None,
-        n_gpu_layers=-1, 
-        system_prompt=None
+        n_gpu_layers=-1,
+        n_ctx=8192,
+        verbose=False,
+        system_prompt=None,
+        llm_config=None
     ):
-        """Inicializa el cliente de chat universal."""
+        """
+        Inicializa el cliente de chat universal.
+
+        Args:
+            model_key: Clave de modelo popular
+            model_path: Ruta al modelo GGUF
+            repo_id: Repositorio de Hugging Face
+            filename: Nombre del archivo GGUF
+            n_gpu_layers: Número de capas en GPU (-1 = auto, 0 = CPU)
+            n_ctx: Tamaño de contexto
+            verbose: Logging verbose
+            system_prompt: Prompt del sistema
+            llm_config: Configuración LLM (opcional, para infer())
+        """
+
+        # Guardar config LLM para infer() (sin cargarla aquí)
+        self.llm_config = llm_config
+
+        # Guardar parámetros del modelo para change_model()
+        self.n_ctx = n_ctx
+        self.n_gpu_layers = n_gpu_layers
+        self.verbose = verbose
 
         print("[INIT] Universal Chat Client v1.0")
         print("=" * 60)
@@ -105,10 +129,10 @@ class UniversalChatClient:
         try:
             self.llm = Llama(
                 model_path=model_path,
-                n_ctx=8192,
+                n_ctx=n_ctx,
                 n_gpu_layers=n_gpu_layers,
                 chat_format=self.chat_format,
-                verbose=False,
+                verbose=verbose,
             )
         except Exception as e:
             print(f"\n[ERROR] Failed to load model: {e}")
@@ -224,9 +248,55 @@ class UniversalChatClient:
 
         return messages
 
-    def infer(self, prompt: str, max_tokens: int = 256) -> str:
-        """Genera la respuesta del modelo."""
+    def infer(
+        self,
+        prompt: str,
+        max_tokens: int = None,
+        temperature: float = None,
+        top_p: float = None,
+        repeat_penalty: float = None,
+        top_k: int = None
+    ) -> str:
+        """
+        Genera la respuesta del modelo.
+
+        Args:
+            prompt: Mensaje del usuario
+            max_tokens: Máximo de tokens a generar
+            temperature: Temperatura de sampling
+            top_p: Nucleus sampling
+            repeat_penalty: Penalización de repetición
+            top_k: Top-k sampling
+
+        Returns:
+            Respuesta del modelo
+        """
         import time
+
+        # Usar valores de llm_config si está disponible y no se especifican
+        if self.llm_config:
+            if max_tokens is None:
+                max_tokens = self.llm_config.max_tokens
+            if temperature is None:
+                temperature = self.llm_config.temperature
+            if top_p is None:
+                top_p = self.llm_config.top_p
+            if repeat_penalty is None:
+                repeat_penalty = self.llm_config.repeat_penalty
+            if top_k is None:
+                top_k = self.llm_config.top_k
+        else:
+            # Fallback a valores por defecto si no hay config
+            if max_tokens is None:
+                max_tokens = 256
+            if temperature is None:
+                temperature = 0.7
+            if top_p is None:
+                top_p = 0.9
+            if repeat_penalty is None:
+                repeat_penalty = 1.1
+            if top_k is None:
+                top_k = 40
 
         messages = self._build_messages_with_system(prompt)
 
@@ -234,7 +304,10 @@ class UniversalChatClient:
         out = self.llm.create_chat_completion(
             messages=messages,
             max_tokens=max_tokens,
-            temperature=0.7,
+            temperature=temperature,
+            top_p=top_p,
+            repeat_penalty=repeat_penalty,
+            top_k=top_k
         )
         elapsed = time.time() - start_time
 
@@ -401,13 +474,18 @@ class UniversalChatClient:
         del self.llm
 
         # Cargar nuevo modelo con manejo de errores
+        # Usar mismos parámetros que en __init__ (guardados en self)
+        n_gpu_layers = self.n_gpu_layers
+        if n_gpu_layers == -1:
+            n_gpu_layers = -1 if torch.cuda.is_available() else 0
+
         try:
             self.llm = Llama(
                 model_path=model_path,
-                n_ctx=8192,
-                n_gpu_layers=-1 if torch.cuda.is_available() else 0,
+                n_ctx=self.n_ctx,
+                n_gpu_layers=n_gpu_layers,
                 chat_format=self.chat_format,
-                verbose=False,
+                verbose=self.verbose,
             )
         except Exception as e:
             print(f"[ERROR] Failed to load model: {e}")
