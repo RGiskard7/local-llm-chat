@@ -1,0 +1,25 @@
+# ⚠️ Dependencias RAG opcionales - Incompatibles con Python 3.13
+# Para usar RAG, instalar con Python 3.11 o 3.12:
+# pip install -r requirements-rag.txt
+
+# Fix: future debe ser >=1.0.0 para compatibilidad con Python 3.11+
+future>=1.0.0
+
+# Fix: configparser debe ser >=5.0.0 (versiones antiguas usan reload() incompatible)
+configparser>=5.0.0
+
+# RAG-Anything y dependencias
+raganything>=1.2.0
+magic-pdf[full]>=0.8.0
+
+# Dependencias adicionales RAG
+sentence-transformers>=2.2.0
+chromadb>=0.5.0
+
+# NOTA: Estas dependencias requieren Python 3.11 o 3.12 debido a:
+# - lightrag-hku -> future (versión antigua incompatible con Python 3.13)
+# - lightrag-hku -> configparser (versiones antiguas usan reload() incompatible)
+#
+# Si intentas instalar en Python 3.13, obtendrás:
+# ImportError: cannot import name 'Sequence' from 'collections'
+

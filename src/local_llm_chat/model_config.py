@@ -1,8 +1,10 @@
 """
 Configuración de modelos y sus capacidades de system prompt.
 Detecta automáticamente cómo manejar system prompts según el modelo.
+Soporta detección de tipo de backend (GGUF vs Transformers).
 """
 
+import os
 import psutil
 import torch
 
@@ -407,4 +409,68 @@ def validate_model_config() -> bool:
         return False
     
     return True
+
+
+def detect_backend_type(model_identifier: str) -> str:
+    """
+    Detecta el tipo de backend basándose en el identificador del modelo
+    
+    Args:
+        model_identifier: Path local, nombre HF, o model_key
+        
+    Returns:
+        "gguf" o "transformers"
+    """
+    # Si es un path y termina en .gguf
+    if os.path.exists(model_identifier) and model_identifier.endswith('.gguf'):
+        return "gguf"
+    
+    # Si contiene .gguf en el nombre (incluso si no existe aún)
+    if '.gguf' in model_identifier.lower():
+        return "gguf"
+    
+    # Si parece un nombre de HuggingFace (contiene /)
+    if '/' in model_identifier:
+        return "transformers"
+    
+    # Si es un path local que existe y no es GGUF
+    if os.path.exists(model_identifier):
+        # Verificar si tiene archivos de Transformers
+        if os.path.isdir(model_identifier):
+            has_config = os.path.exists(os.path.join(model_identifier, "config.json"))
+            has_pytorch = any(
+                f.endswith('.bin') or f.endswith('.safetensors')
+                for f in os.listdir(model_identifier)
+            )
+            if has_config or has_pytorch:
+                return "transformers"
+    
+    # Default: asumir GGUF para compatibilidad con código legacy
+    return "gguf"
+
+
+def is_gguf_model(model_identifier: str) -> bool:
+    """
+    Verifica si un modelo es GGUF
+    
+    Args:
+        model_identifier: Path o nombre del modelo
+        
+    Returns:
+        True si es GGUF
+    """
+    return detect_backend_type(model_identifier) == "gguf"
+
+
+def is_transformers_model(model_identifier: str) -> bool:
+    """
+    Verifica si un modelo es Transformers
+    
+    Args:
+        model_identifier: Path o nombre del modelo
+        
+    Returns:
+        True si es Transformers
+    """
+    return detect_backend_type(model_identifier) == "transformers"
 

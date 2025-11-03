@@ -1,27 +1,36 @@
-# Local LLM Chat - Universal Local LLM Interface
+# Local LLM Chat - Universal Multi-Backend LLM Interface
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.8-3.13](https://img.shields.io/badge/python-3.8--3.13-blue.svg)](https://www.python.org/downloads/) [![RAG: 3.11-3.12](https://img.shields.io/badge/RAG-3.11--3.12-orange.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GGUF](https://img.shields.io/badge/format-GGUF-green.svg)](https://github.com/ggerganov/ggml)
 [![Transformers](https://img.shields.io/badge/backend-transformers-orange.svg)](https://huggingface.co/docs/transformers)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/RGiskard7/local-llm-chat)
 
-Una interfaz universal para ejecutar modelos de lenguaje localmente. Soporta **modelos GGUF** (vía llama.cpp) y **Transformers** (en el futuro) de Hugging Face. Diseñado con adaptación automática de system prompt y detección inteligente de modelos.
+Una interfaz universal para ejecutar modelos de lenguaje localmente con **múltiples backends intercambiables**. Soporta **modelos GGUF** (vía llama.cpp) y **Transformers** (Hugging Face). Diseñado con adaptación automática de system prompt, detección inteligente de modelos y arquitectura modular.
 
 ## Características Principales
 
-- **Soporte Universal de GGUF**: Compatible con Llama, Mistral, Gemma, Phi, Qwen y más
-- **Detección Automática**: Reconoce el tipo de modelo y adapta el formato de chat automáticamente
-- **System Prompts Inteligentes**: Maneja modelos con y sin soporte nativo de system prompt
-- **Consciente del Hardware**: Recomienda modelos óptimos según RAM/VRAM disponible
-- **RAG (Retrieval-Augmented Generation)**: Dos backends para Q&A sobre documentos
+### 🚀 **NUEVO v2.0**: Sistema Multi-Backend
+- **GGUF Backend**: Modelos cuantizados vía llama-cpp-python (original)
+- **Transformers Backend**: Modelos Hugging Face (local o remoto) - **NUEVO**
+- **Intercambiabilidad Total**: Cambia de backend sin modificar código
+- **Interfaz Común**: Misma API para ambos backends
+
+### 💡 Características Core
+- **Soporte Universal**: GGUF y Transformers con cualquier arquitectura
+- **Detección Automática**: Reconoce tipo de modelo y backend automáticamente
+- **System Prompts Inteligentes**: Adaptación automática según capacidades del modelo
+- **Consciente del Hardware**: Recomendaciones según RAM/VRAM disponible
+- **RAG (Retrieval-Augmented Generation)**: Compatible con ambos backends
   - SimpleRAG: ChromaDB, rápido, optimizado para CPU
   - RAG-Anything: Knowledge graph, complejo, para GPU
 - **Configuración Centralizada**: Sistema híbrido (código, JSON, env vars)
 - **Persistencia de Documentos**: RAG recuerda documentos entre sesiones
-- **Gestión de Sesiones**: Registro automático de conversaciones con métricas completas
-- **Presets Configurables**: System prompts preconfigurados para diferentes casos de uso
-- **Cambio Dinámico de Modelos**: Cambia entre modelos sin perder configuración
-- **Aceleración GPU**: Soporte automático para Metal (macOS) y CUDA (Linux/Windows)
+- **Gestión de Sesiones**: Registro automático con métricas completas
+- **Presets Configurables**: System prompts preconfigurados
+- **Cambio Dinámico**: Cambia modelos y backends durante la sesión
+- **Aceleración GPU**: CUDA (NVIDIA) y Metal (Apple Silicon)
+- **Cuantización**: Soporte 8-bit/4-bit para Transformers (opcional)
 
 ## Tabla de Contenidos
 
@@ -39,10 +48,15 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente. Soporta **m
 
 ## Requisitos
 
-- Python 3.8 o superior
+- **Python 3.8 - 3.12** (Core + GGUF + Transformers)
+- **Python 3.11 - 3.12** (RAG - incompatible con 3.13)
 - 4GB RAM mínimo (8GB+ recomendado)
 - 10GB espacio en disco para modelos
 - Opcional: GPU con soporte CUDA o Metal
+
+### ⚠️ Nota sobre Python 3.13
+
+El **core del proyecto** (GGUF + Transformers) funciona perfectamente con Python 3.13. Sin embargo, **las funcionalidades RAG** requieren Python 3.11 o 3.12 debido a dependencias incompatibles (`lightrag-hku` → `future` antiguo).
 
 ### Requisitos GPU (CUDA)
 
@@ -56,7 +70,7 @@ Para usar aceleración GPU en Windows/Linux con NVIDIA:
 
 ## Instalación
 
-### Instalación Estándar
+### Instalación Estándar (GGUF Backend)
 
 ```bash
 # Clonar el repositorio
@@ -67,9 +81,39 @@ cd local-llm-chat
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Instalar dependencias
+# Instalar dependencias básicas (solo GGUF)
 pip install -e .
 ```
+
+### Instalación con Transformers Backend
+
+```bash
+# Instalar con soporte Transformers
+pip install -e ".[transformers]"
+
+# O con cuantización 8-bit/4-bit
+pip install -e ".[quantization]"
+
+# O todo (Transformers + RAG + cuantización)
+pip install -e ".[all]"
+```
+
+### Instalación con RAG (Python 3.11/3.12 solamente)
+
+⚠️ **Las funcionalidades RAG requieren Python 3.11 o 3.12** (incompatibles con Python 3.13):
+
+```bash
+# Verificar versión de Python
+python --version  # Debe ser 3.11.x o 3.12.x
+
+# Instalar dependencias RAG por separado
+pip install -r requirements-rag.txt
+
+# O usar pyproject.toml extras
+pip install -e ".[rag]"
+```
+
+**Si tienes Python 3.13**: El core del proyecto funciona perfectamente, pero RAG no estará disponible hasta que `lightrag-hku` se actualice.
 
 ### Instalación con Soporte CUDA (Windows/Linux)
 
@@ -172,11 +216,14 @@ llm-chat
 
 ### Modo Biblioteca
 
+#### Backend GGUF (modelos locales .gguf)
+
 ```python
 from local_llm_chat import UniversalChatClient
 
-# Inicializar cliente
+# Inicializar con GGUF usando model_path (recomendado)
 client = UniversalChatClient(
+    backend="gguf",
     model_path="models/llama-3.1-8b-instruct.gguf",
     system_prompt="Eres un asistente experto en Python."
 )
@@ -184,9 +231,69 @@ client = UniversalChatClient(
 # Generar respuesta
 response = client.infer("¿Qué es un decorador?")
 print(response)
+```
 
-# Guardar sesión
-client.save_log()
+#### Backend Transformers (modelos Hugging Face)
+
+```python
+from local_llm_chat import UniversalChatClient
+
+# Modelo remoto desde HuggingFace Hub
+# Puedes usar model_name_or_path (convención HF) o model_path
+client = UniversalChatClient(
+    backend="transformers",
+    model_name_or_path="bigscience/bloom-560m",  # Recomendado para HF
+    system_prompt="Eres un asistente útil."
+)
+
+# También funciona con model_path (son aliases)
+client = UniversalChatClient(
+    backend="transformers",
+    model_path="bigscience/bloom-560m",  # También válido
+    system_prompt="Eres un asistente útil."
+)
+
+# Modelo local
+client = UniversalChatClient(
+    backend="transformers",
+    model_name_or_path="/path/to/local/model",
+    device="cuda",
+    torch_dtype="float16"
+)
+
+# Con cuantización 8-bit (requiere bitsandbytes)
+client = UniversalChatClient(
+    backend="transformers",
+    model_name_or_path="meta-llama/Llama-2-7b-hf",
+    load_in_8bit=True
+)
+
+response = client.infer("Explícame la IA")
+print(response)
+```
+
+**Nota**: `model_path` y `model_name_or_path` son **intercambiables** - ambos funcionan con ambos backends. Usa el que prefieras o el que sea más natural para tu caso.
+
+#### Cambio Dinámico de Backend
+
+```python
+# Iniciar con GGUF
+client = UniversalChatClient(
+    backend="gguf",
+    model_path="models/llama-3.2-3b.gguf"
+)
+
+# Cambiar a Transformers (usa model_name_or_path o model_path)
+client.change_model(
+    backend="transformers",
+    model_name_or_path="bigscience/bloom-560m"  # O model_path="..."
+)
+
+# Volver a GGUF
+client.change_model(
+    backend="gguf",
+    model_path="models/mistral-7b.gguf"
+)
 ```
 
 ## Comandos CLI
@@ -306,29 +413,73 @@ for pregunta in preguntas:
 client.save_log()
 ```
 
-## Modelos Soportados
+## Backends Soportados
 
-### Soporte Nativo Completo
+### GGUF Backend (llama-cpp-python)
+
+Modelos cuantizados locales en formato .gguf:
 
 | Familia | Versiones | System Prompt | Formato |
 |---------|-----------|---------------|---------|
 | Llama | 2, 3, 3.1 | Nativo | llama-2/3 |
 | Mistral | 7B, Mixtral | Nativo | mistral |
 | OpenChat | 3.5+ | Nativo | openchat |
-
-### Soporte con Workaround
-
-| Familia | Versiones | System Prompt | Formato |
-|---------|-----------|---------------|---------|
 | Gemma | 1, 2, 3 | Workaround | gemma |
 | Phi | 3, 3.5 | Workaround | phi |
 | Qwen | 2, 2.5 | ChatML | chatml |
+| Dolphin/Nous-Hermes | - | ChatML | chatml |
+| Yi | - | ChatML | chatml |
 
-### Otros Modelos
+### Transformers Backend (Hugging Face)
 
-- **Dolphin/Nous-Hermes**: Soporte ChatML
-- **Yi**: Soporte ChatML
-- **Modelos desconocidos**: Auto-detección con fallback
+Cualquier modelo de Hugging Face compatible con `AutoModelForCausalLM`:
+
+**Familias populares**:
+- **GPT**: GPT-2, GPT-Neo, GPT-J, GPT-NeoX, GPT-4 (community)
+- **Llama**: Llama-2, Llama-3, Vicuna, Alpaca, WizardLM
+- **Mistral**: Mistral-7B, Mixtral-8x7B, Zephyr
+- **Bloom**: BLOOM-560m, BLOOM-1b7, BLOOM-7b1
+- **Falcon**: Falcon-7B, Falcon-40B, Falcon-180B
+- **Phi**: Phi-1.5, Phi-2, Phi-3
+- **Gemma**: Gemma-2B, Gemma-7B
+- **Qwen**: Qwen-7B, Qwen-14B, Qwen-72B
+- **MPT**: MPT-7B, MPT-30B
+- **StableLM**: StableLM-7B, StableLM-Alpha
+- Y muchos más...
+
+**Ejemplos de uso**:
+```python
+# Modelos pequeños (< 1GB)
+"bigscience/bloom-560m"
+"EleutherAI/gpt-neo-125M"
+"microsoft/phi-2"
+
+# Modelos medianos (1-10GB)
+"bigscience/bloom-1b7"
+"EleutherAI/gpt-j-6B"
+"mistralai/Mistral-7B-v0.1"
+
+# Modelos grandes (> 10GB)
+"meta-llama/Llama-2-7b-hf"
+"tiiuae/falcon-7b"
+```
+
+### Comparación de Backends
+
+| Aspecto | GGUF | Transformers |
+|---------|------|--------------|
+| **Formato** | .gguf cuantizado | PyTorch/SafeTensors |
+| **Tamaño típico** | 2-8GB (cuantizado) | 10-30GB (full precision) |
+| **Velocidad CPU** | ⚡⚡⚡ Muy rápido | 🟡 Medio |
+| **Velocidad GPU** | ⚡⚡ Rápido | ⚡⚡⚡ Muy rápido |
+| **RAM necesaria** | ✅ Baja (2-8GB) | ❌ Alta (8-32GB) |
+| **Fuente** | Solo local | Local o HF Hub |
+| **Cuantización** | Nativa (Q4, Q5, Q8) | Requiere bitsandbytes |
+| **Instalación** | Incluida | Opcional |
+
+**Recomendaciones**:
+- **Usa GGUF** para máxima velocidad en CPU y bajo uso de RAM
+- **Usa Transformers** para acceso a cualquier modelo HF o para experimentación
 
 ## Configuración
 
@@ -698,10 +849,28 @@ in the Software without restriction...
 
 ## Estado del Proyecto
 
-- Versión actual: 1.0.0
+- Versión actual: 2.0.0 🎉
 - Estado: Estable
 - Python: 3.8+
-- Última actualización: Octubre 2025
+- Backends: GGUF + Transformers
+- Última actualización: Noviembre 2025
+
+## Novedades v2.0
+
+### 🚀 Sistema Multi-Backend
+- ✅ Arquitectura modular con backends intercambiables
+- ✅ Backend Transformers (Hugging Face) totalmente funcional
+- ✅ Interfaz común para ambos backends
+- ✅ System prompts adaptativos universales
+- ✅ RAG compatible con ambos backends
+- ✅ Cambio dinámico de backend durante la sesión
+- ✅ Detección automática de tipo de backend
+- ✅ Soporte cuantización 8-bit/4-bit para Transformers
+
+### 📚 Documentación
+- ✅ [BACKENDS_ARCHITECTURE.md](doc/BACKENDS_ARCHITECTURE.md) - Guía completa de backends
+- ✅ README actualizado con ejemplos de uso
+- ✅ Instalación modular con dependencias opcionales
 
 -----
 

@@ -1,83 +1,215 @@
 """
-Cliente de Chat Universal - Interfaz multi-modelo LLM
-Clase principal para gestionar sesiones de chat con modelos GGUF
+Cliente de Chat Universal - Interfaz multi-backend LLM
+Clase principal para gestionar sesiones de chat con diferentes backends de modelos
+Soporta: GGUF (llama-cpp-python) y Transformers (Hugging Face)
 """
 
 import os
 import json
 from datetime import datetime
+from typing import Optional, Dict, Any
 from huggingface_hub import hf_hub_download
-from llama_cpp import Llama
-import torch
 
-from .model_config import (
-    detect_model_type,
-    get_chat_format,
-    supports_native_system,
-    get_model_info,
-)
+from .backends import GGUFBackend, TransformersBackend, TRANSFORMERS_AVAILABLE
+from .model_config import get_model_info
 
 # Configuración
 LOGS_DIR = "./chat_logs"
 os.makedirs(LOGS_DIR, exist_ok=True)
 
+
 class UniversalChatClient:
     """
-    Cliente de chat universal que soporta cualquier modelo GGUF con adaptación automática de system prompt.
-
-    Args:
-        model_key: Clave de modelo popular (ej., "gemma-12b", "llama-3-8b")
-        model_path: Ruta directa al modelo GGUF local
-        repo_id: Repositorio de Hugging Face (si no se usa model_key)
-        filename: Nombre de archivo GGUF (si no se usa model_key)
-        n_gpu_layers: Número de capas en GPU (-1 = todas)
-        system_prompt: Prompt del sistema inicial (opcional)
+    Cliente de chat universal que soporta múltiples backends de modelos con interfaz común
+    
+    Soporta:
+    - GGUF: Modelos cuantizados vía llama-cpp-python
+    - Transformers: Modelos Hugging Face (local o remoto)
+    
+    Características:
+    - Detección automática de tipo de modelo
+    - System prompts adaptativos según capacidades
+    - Presets configurables
+    - Gestión de historial y sesiones
+    - Cambio dinámico de modelos y backends
+    
+    Uso GGUF:
+        client = UniversalChatClient(
+            backend="gguf",
+            model_path="models/llama-3.2-3b.gguf"
+        )
+    
+    Uso Transformers:
+        client = UniversalChatClient(
+            backend="transformers",
+            model_name_or_path="bigscience/bloom-560m"
+        )
+    
+    Uso con model_key (legacy):
+        client = UniversalChatClient(
+            model_key="llama-3-8b"
+        )
     """
-
+    
     def __init__(
-        self, 
-        model_key=None, 
-        model_path=None, 
-        repo_id=None, 
-        filename=None,
-        n_gpu_layers=-1, 
-        system_prompt=None
+        self,
+        # Parámetros de backend
+        backend: str = "gguf",  # "gguf" o "transformers"
+        
+        # Parámetros GGUF
+        model_key: Optional[str] = None,
+        model_path: Optional[str] = None,
+        repo_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        n_gpu_layers: int = -1,
+        n_ctx: int = 8192,
+        
+        # Parámetros Transformers
+        model_name_or_path: Optional[str] = None,
+        device: str = "auto",
+        torch_dtype: str = "auto",
+        trust_remote_code: bool = False,
+        load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
+        
+        # Parámetros comunes
+        system_prompt: Optional[str] = None,
+        verbose: bool = False,
     ):
-        """Inicializa el cliente de chat universal."""
-
-        print("[INIT] Universal Chat Client v1.0")
+        """
+        Inicializa el cliente de chat universal
+        
+        Args:
+            backend: Tipo de backend ("gguf" o "transformers")
+            
+            # GGUF params
+            model_key: Clave de modelo popular (legacy)
+            model_path: Ruta al modelo (funciona con ambos backends)
+            repo_id: Repositorio HF (para GGUF)
+            filename: Nombre archivo GGUF
+            n_gpu_layers: Capas en GPU para GGUF
+            n_ctx: Tamaño contexto para GGUF
+            
+            # Transformers params
+            model_name_or_path: Alias de model_path (convención HuggingFace)
+            device: Dispositivo ("auto", "cuda", "cpu")
+            torch_dtype: Tipo de datos ("auto", "float16", etc.)
+            trust_remote_code: Permitir código remoto
+            load_in_8bit: Cargar en 8-bit
+            load_in_4bit: Cargar en 4-bit
+            
+            # Common params
+            system_prompt: System prompt inicial
+            verbose: Logs verbosos
+        
+        Nota sobre model_path vs model_name_or_path:
+            Ambos parámetros son INTERCAMBIABLES y funcionan con cualquier backend.
+            - model_path: Nombre más genérico
+            - model_name_or_path: Convención HuggingFace (más descriptivo)
+            
+            Usa el que prefieras según tu caso:
+            - GGUF: model_path="models/llama.gguf" (recomendado)
+            - Transformers: model_name_or_path="bigscience/bloom" (recomendado)
+            
+            Pero ambos funcionan con ambos backends.
+        """
+        print("[INIT] Universal Chat Client v2.0 - Multi-Backend")
         print("=" * 60)
-
-        # Determinar qué modelo cargar
+        
+        self.backend_type = backend.lower()
+        self.verbose = verbose
+        self.backend = None
+        
+        # ALIAS RESOLUTION: Unificar model_path y model_name_or_path
+        # Ambos parámetros hacen lo mismo, solo difieren en el nombre
+        if model_path and model_name_or_path:
+            raise ValueError(
+                "Cannot specify both 'model_path' and 'model_name_or_path'. "
+                "They are aliases - use only one.\n"
+                f"  model_path: {model_path}\n"
+                f"  model_name_or_path: {model_name_or_path}"
+            )
+        
+        # Si se usó model_name_or_path, copiarlo a model_path
+        if model_name_or_path and not model_path:
+            model_path = model_name_or_path
+        
+        # A partir de aquí, solo usamos model_path internamente
+        
+        # Configuración del prompt del sistema
+        self.system_prompt = system_prompt
+        self.preset_name = None
+        
+        # Historial de conversación
+        self.conversation_history = []
+        self.session_start = datetime.now()
+        self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
+        
+        # Inicializar backend según tipo
+        if self.backend_type == "gguf":
+            self._init_gguf_backend(
+                model_key, model_path, repo_id, filename,
+                n_gpu_layers, n_ctx
+            )
+        elif self.backend_type == "transformers":
+            self._init_transformers_backend(
+                model_name_or_path, device, torch_dtype,
+                trust_remote_code, load_in_8bit, load_in_4bit
+            )
+        else:
+            raise ValueError(
+                f"Unknown backend '{backend}'. "
+                f"Supported: 'gguf', 'transformers'"
+            )
+        
+        # Información del modelo desde backend
+        if self.backend and self.backend.is_loaded:
+            model_info = self.backend.get_model_info()
+            self.model_type = model_info.get("model_type", "unknown")
+            self.supports_native_system = model_info.get("supports_native_system", False)
+            self.chat_format = model_info.get("chat_format")
+            
+            print("[READY] Model loaded successfully")
+            print(f"[SESSION] ID: {self.session_id}")
+            
+            if self.system_prompt:
+                preview = self.system_prompt[:80] + "..." if len(self.system_prompt) > 80 else self.system_prompt
+                print(f"[SYSTEM] Active prompt: {preview}")
+        
+        print("=" * 60)
+    
+    def _init_gguf_backend(
+        self,
+        model_key: Optional[str],
+        model_path: Optional[str],
+        repo_id: Optional[str],
+        filename: Optional[str],
+        n_gpu_layers: int,
+        n_ctx: int
+    ):
+        """Inicializa backend GGUF"""
+        print("[BACKEND] Using GGUF (llama-cpp-python)")
+        
+        # Determinar qué modelo cargar (legacy model_key support)
         if model_key:
             model_info = get_model_info(model_key)
             if not model_info:
                 raise ValueError(f"Model '{model_key}' not found. Use list_models() for options.")
-
+            
             print(f"[MODEL] {model_info['description']}")
             repo_id = model_info["repo_id"]
             filename = model_info["filename"]
-            self.model_type = model_info["type"]
-
-        elif model_path:
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model not found: {model_path}")
-            self.model_type = detect_model_type(model_path)
-
-        elif repo_id and filename:
-            self.model_type = detect_model_type(filename)
-
-        else:
-            raise ValueError(
-                "No model specified. Please specify a model using one of:\n"
-                "  - model_key (e.g., 'gemma-12b', 'llama-3-8b')\n"
-                "  - model_path (path to local .gguf file)\n"
-                "  - repo_id and filename (Hugging Face repository)\n"
-                "Use /models command to see available models and recommendations."
-            )
-
+        
         # Descargar modelo si es necesario
         if not model_path:
+            if not (repo_id and filename):
+                raise ValueError(
+                    "For GGUF backend, provide either:\n"
+                    "  - model_path (local .gguf file)\n"
+                    "  - model_key (popular model)\n"
+                    "  - repo_id + filename (HuggingFace)"
+                )
+            
             print(f"[DOWNLOAD] {filename}")
             print("[INFO] First download may take several minutes...")
             model_path = hf_hub_download(
@@ -85,72 +217,77 @@ class UniversalChatClient:
                 filename=filename,
                 local_dir="./models",
             )
-
-        # Detectar capacidades del modelo
-        self.supports_native_system = supports_native_system(self.model_type)
-        self.chat_format = get_chat_format(self.model_type)
-
-        print(f"[DETECT] Model type: {self.model_type}")
-        print(f"[DETECT] Chat format: {self.chat_format or 'auto'}")
-        print(f"[DETECT] Native system support: {'YES' if self.supports_native_system else 'NO (using workaround)'}")
-
-        # Configurar GPU
-        if n_gpu_layers == -1:
-            n_gpu_layers = -1 if torch.cuda.is_available() else 0
-
-        print(f"[GPU] Layers: {n_gpu_layers}")
-        print("[LOAD] Loading model into memory...")
-
-        # Cargar modelo con manejo de errores
-        try:
-            self.llm = Llama(
-                model_path=model_path,
-                n_ctx=8192,
-                n_gpu_layers=n_gpu_layers,
-                chat_format=self.chat_format,
-                verbose=False,
+        
+        # Validar que el archivo existe
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        
+        # Crear backend y cargar modelo
+        self.backend = GGUFBackend(
+            model_path=model_path,
+            n_gpu_layers=n_gpu_layers,
+            n_ctx=n_ctx,
+            verbose=self.verbose
+        )
+        
+        success = self.backend.load_model()
+        if not success:
+            raise RuntimeError("Failed to load GGUF model")
+    
+    def _init_transformers_backend(
+        self,
+        model_path: Optional[str],
+        device: str,
+        torch_dtype: str,
+        trust_remote_code: bool,
+        load_in_8bit: bool,
+        load_in_4bit: bool
+    ):
+        """Inicializa backend Transformers"""
+        if not TRANSFORMERS_AVAILABLE:
+            raise RuntimeError(
+                "Transformers backend not available. "
+                "Install with: pip install transformers accelerate"
             )
-        except Exception as e:
-            print(f"\n[ERROR] Failed to load model: {e}")
-            print(f"[INFO] Common issues:")
-            print(f"  - File is corrupted (try re-downloading)")
-            print(f"  - Insufficient RAM/VRAM (try a smaller model)")
-            print(f"  - Incompatible GGUF version (update llama-cpp-python)")
-            raise
-
-        # Configuración del prompt del sistema
-        self.system_prompt = system_prompt
-        self.preset_name = None
-
-        # Historial de conversación
-        self.conversation_history = []
-        self.session_start = datetime.now()
-        self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
-
-        print("[READY] Model loaded successfully")
-        print(f"[SESSION] ID: {self.session_id}")
-
-        if self.system_prompt:
-            preview = self.system_prompt[:80] + "..." if len(self.system_prompt) > 80 else self.system_prompt
-            print(f"[SYSTEM] Active prompt: {preview}")
-
-        print("=" * 60)
-
+        
+        print("[BACKEND] Using Transformers (Hugging Face)")
+        
+        if not model_path:
+            raise ValueError(
+                "For Transformers backend, provide:\n"
+                "  - model_path or model_name_or_path (HuggingFace name or local path)\n"
+                "Examples: 'bigscience/bloom-560m', 'meta-llama/Llama-2-7b-hf'"
+            )
+        
+        # Crear backend y cargar modelo
+        self.backend = TransformersBackend(
+            model_name_or_path=model_path,
+            device=device,
+            torch_dtype=torch_dtype,
+            trust_remote_code=trust_remote_code,
+            load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
+        )
+        
+        success = self.backend.load_model()
+        if not success:
+            raise RuntimeError("Failed to load Transformers model")
+    
     def set_system_prompt(self, prompt: str):
-        """Establece el prompt del sistema."""
+        """Establece el prompt del sistema"""
         self.system_prompt = prompt
         self.preset_name = None
         preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
         print(f"[SYSTEM] Prompt updated: {preview}")
-
+    
     def clear_system_prompt(self):
-        """Elimina el prompt del sistema."""
+        """Elimina el prompt del sistema"""
         self.system_prompt = None
         self.preset_name = None
         print("[SYSTEM] Prompt cleared")
-
+    
     def show_system_prompt(self):
-        """Muestra el prompt del sistema actual."""
+        """Muestra el prompt del sistema actual"""
         if self.system_prompt:
             print("\n" + "=" * 60)
             print("ACTIVE SYSTEM PROMPT")
@@ -159,7 +296,7 @@ class UniversalChatClient:
             print("=" * 60 + "\n")
         else:
             print("[WARN] No system prompt configured")
-
+    
     def load_preset(self, preset_name: str) -> bool:
         """Carga un preset desde prompts.py"""
         try:
@@ -167,113 +304,124 @@ class UniversalChatClient:
         except ImportError:
             print("[ERROR] prompts.py not available")
             return False
-
+        
         if preset_name not in PROMPTS:
             print(f"[ERROR] Preset '{preset_name}' not found")
             print(f"[INFO] Available: {', '.join(PROMPTS.keys())}")
             return False
-
+        
         self.system_prompt = PROMPTS[preset_name]
         self.preset_name = preset_name
         print(f"[SYSTEM] Preset '{preset_name}' loaded")
         return True
-
+    
     def list_presets(self):
-        """Lista los presets disponibles."""
+        """Lista los presets disponibles"""
         try:
             from .prompts import PROMPTS
         except ImportError:
             print("[WARN] prompts.py not available")
             return
-
+        
         print("\n" + "=" * 60)
         print("AVAILABLE PRESETS")
         print("=" * 60)
         for i, name in enumerate(PROMPTS.keys(), 1):
             print(f"  {i}. {name}")
         print("=" * 60 + "\n")
-
+    
     def _build_messages_with_system(self, prompt: str) -> list:
         """
-        Construye la lista de mensajes con adaptación del prompt del sistema.
-
+        Construye la lista de mensajes con adaptación del prompt del sistema
+        
         Args:
             prompt: Mensaje actual del usuario
-
+            
         Returns:
-            Lista de mensajes formateada para el modelo
+            Lista de mensajes formateada según el backend
         """
         messages = []
-
-        if self.system_prompt:
-            if self.supports_native_system:
-                # Modelos con soporte nativo de system (Llama, Mistral, etc.)
-                messages.append({"role": "system", "content": self.system_prompt})
-            else:
-                # Modelos sin soporte nativo (Gemma, Phi, etc.)
-                messages.append({"role": "user", "content": self.system_prompt})
-                messages.append({"role": "assistant", "content": "Understood. I will follow these instructions."})
-
+        
         # Agregar historial de conversación
         for entry in self.conversation_history:
             messages.append({"role": "user", "content": entry["user"]})
             messages.append({"role": "assistant", "content": entry["assistant"]})
-
+        
         # Agregar mensaje actual
         messages.append({"role": "user", "content": prompt})
-
+        
+        # Formatear con system prompt usando el backend
+        if self.system_prompt:
+            messages = self.backend.format_messages(messages, self.system_prompt)
+        
         return messages
-
-    def infer(self, prompt: str, max_tokens: int = 256) -> str:
-        """Genera la respuesta del modelo."""
-        import time
-
+    
+    def infer(
+        self, 
+        prompt: str, 
+        max_tokens: int = 256,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> str:
+        """
+        Genera respuesta del modelo
+        
+        Args:
+            prompt: Mensaje del usuario
+            max_tokens: Máximo de tokens a generar
+            temperature: Temperatura para sampling
+            **kwargs: Parámetros adicionales específicos del backend
+            
+        Returns:
+            Respuesta del modelo
+        """
+        if not self.backend or not self.backend.is_loaded:
+            raise RuntimeError("Model not loaded")
+        
+        # Construir mensajes
         messages = self._build_messages_with_system(prompt)
-
-        start_time = time.time()
-        out = self.llm.create_chat_completion(
+        
+        # Generar respuesta usando el backend
+        result = self.backend.generate(
             messages=messages,
             max_tokens=max_tokens,
-            temperature=0.7,
+            temperature=temperature,
+            **kwargs
         )
-        elapsed = time.time() - start_time
-
-        response = out["choices"][0]["message"]["content"]
-
-        # Extraer uso de tokens si está disponible
-        usage = out.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", 0)
-
+        
+        response = result["content"]
+        usage = result["usage"]
+        elapsed = result["elapsed_seconds"]
+        
         # Mostrar métricas
         if elapsed < 60:
             time_str = f"{elapsed:.1f}s"
         else:
             time_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
-
-        print(f"[METRICS] {time_str} | IN:{prompt_tokens} OUT:{completion_tokens} TOTAL:{total_tokens}")
-
+        
+        print(f"[METRICS] {time_str} | IN:{usage['prompt_tokens']} OUT:{usage['completion_tokens']} TOTAL:{usage['total_tokens']}")
+        
+        # Guardar en historial
         self.conversation_history.append({
             "timestamp": datetime.now().isoformat(),
             "user": prompt,
             "assistant": response,
             "metrics": {
-                "elapsed_seconds": round(elapsed, 2),
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens
+                "elapsed_seconds": elapsed,
+                "prompt_tokens": usage["prompt_tokens"],
+                "completion_tokens": usage["completion_tokens"],
+                "total_tokens": usage["total_tokens"]
             }
         })
-
+        
         return response
-
+    
     def save_log(self):
-        """Guarda la conversación en un archivo JSON."""
+        """Guarda la conversación en un archivo JSON"""
         filename_parts = [self.session_id]
-
+        
         filename_parts.append(self.model_type)
-
+        
         if self.preset_name:
             filename_parts.append(self.preset_name)
         elif self.conversation_history:
@@ -284,13 +432,17 @@ class UniversalChatClient:
             preview = preview.replace(" ", "_")[:30]
             if preview:
                 filename_parts.append(preview)
-
+        
         filename = "_".join(filename_parts) + ".json"
         log_file = os.path.join(LOGS_DIR, filename)
-
+        
+        model_info = self.backend.get_model_info() if self.backend else {}
+        
         log_data = {
             "session_id": self.session_id,
+            "backend_type": self.backend_type,
             "model_type": self.model_type,
+            "model_info": model_info,
             "chat_format": self.chat_format,
             "supports_native_system": self.supports_native_system,
             "preset_name": self.preset_name,
@@ -300,18 +452,18 @@ class UniversalChatClient:
             "total_messages": len(self.conversation_history),
             "conversation": self.conversation_history
         }
-
+        
         with open(log_file, 'w', encoding='utf-8') as f:
             json.dump(log_data, f, indent=2, ensure_ascii=False)
-
+        
         print(f"\n[SAVE] Log saved: {log_file}")
-
+    
     def show_history(self):
-        """Muestra el historial de conversación."""
+        """Muestra el historial de conversación"""
         if not self.conversation_history:
             print("\n[INFO] No history available")
             return
-
+        
         print("\n" + "=" * 60)
         print("CONVERSATION HISTORY")
         print("=" * 60)
@@ -320,7 +472,7 @@ class UniversalChatClient:
             print(f"    {entry['user']}")
             print(f"\n    ASSISTANT:")
             print(f"    {entry['assistant']}")
-
+            
             # Mostrar métricas si están disponibles
             if 'metrics' in entry:
                 m = entry['metrics']
@@ -330,20 +482,20 @@ class UniversalChatClient:
                 else:
                     time_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
                 print(f"    [{time_str} | IN:{m.get('prompt_tokens', 0)} OUT:{m.get('completion_tokens', 0)}]")
-
+        
         print("\n" + "=" * 60)
-
+    
     def show_stats(self):
-        """Muestra las estadísticas de la sesión."""
+        """Muestra las estadísticas de la sesión"""
         if not self.conversation_history:
             print("\n[INFO] No statistics available")
             return
-
+        
         total_time = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
         total_tokens = 0
-
+        
         for entry in self.conversation_history:
             if 'metrics' in entry:
                 m = entry['metrics']
@@ -351,12 +503,14 @@ class UniversalChatClient:
                 total_prompt_tokens += m.get('prompt_tokens', 0)
                 total_completion_tokens += m.get('completion_tokens', 0)
                 total_tokens += m.get('total_tokens', 0)
-
+        
         avg_time = total_time / len(self.conversation_history) if self.conversation_history else 0
-
+        
         print("\n" + "=" * 60)
         print("SESSION STATISTICS")
         print("=" * 60)
+        print(f"Backend: {self.backend_type}")
+        print(f"Model: {self.model_type}")
         print(f"Messages: {len(self.conversation_history)}")
         print(f"Total time: {int(total_time // 60)}m {int(total_time % 60)}s")
         print(f"Avg time/message: {avg_time:.1f}s")
@@ -364,68 +518,103 @@ class UniversalChatClient:
         print(f"  Input: {total_prompt_tokens}")
         print(f"  Output: {total_completion_tokens}")
         print("=" * 60 + "\n")
-
-    def change_model(self, model_path: str):
-        """Cambia a un modelo diferente."""
-        # Validar que el archivo existe
-        if not os.path.exists(model_path):
-            print(f"[ERROR] Model not found: {model_path}")
-            return False
-
-        # Validar que el archivo es GGUF
-        if not model_path.endswith('.gguf'):
-            print(f"[ERROR] Invalid file type. Expected .gguf file")
-            return False
-
-        print(f"\n[LOAD] Switching to: {os.path.basename(model_path)}")
-
+    
+    def change_model(
+        self,
+        backend: Optional[str] = None,
+        **kwargs
+    ) -> bool:
+        """
+        Cambia a un modelo diferente (puede cambiar de backend)
+        
+        Args:
+            backend: Nuevo backend ("gguf" o "transformers", None = mismo)
+            **kwargs: Parámetros específicos del backend
+            
+        Returns:
+            True si exitoso, False si falla
+            
+        Ejemplos:
+            # Cambiar a otro GGUF
+            client.change_model(model_path="models/mistral-7b.gguf")
+            
+            # Cambiar a Transformers
+            client.change_model(
+                backend="transformers",
+                model_name_or_path="bigscience/bloom-560m"
+            )
+        """
         # Guardar sesión actual si hay historial
         if self.conversation_history:
             self.save_log()
             print("[INFO] Previous session saved")
-
-        # Detectar nuevo modelo
-        self.model_type = detect_model_type(model_path)
-        self.supports_native_system = supports_native_system(self.model_type)
-        self.chat_format = get_chat_format(self.model_type)
-
-        print(f"[DETECT] Model type: {self.model_type}")
-        print(f"[DETECT] Native system support: {'YES' if self.supports_native_system else 'NO (using workaround)'}")
-
-        # Advertir si el tipo de modelo es desconocido
-        if self.model_type == "unknown":
-            print("[WARN] Model type not recognized. Using generic settings.")
-            print("[WARN] Response quality may vary. Consider adding to model_config.py")
-
-        # Descargar modelo antiguo
-        del self.llm
-
-        # Cargar nuevo modelo con manejo de errores
+        
+        # Descargar modelo anterior
+        if self.backend:
+            self.backend.unload_model()
+        
+        # Determinar backend
+        new_backend = backend if backend else self.backend_type
+        
+        print(f"\n[CHANGE] Switching to backend: {new_backend}")
+        
         try:
-            self.llm = Llama(
-                model_path=model_path,
-                n_ctx=8192,
-                n_gpu_layers=-1 if torch.cuda.is_available() else 0,
-                chat_format=self.chat_format,
-                verbose=False,
-            )
+            # Reiniciar configuración
+            self.backend_type = new_backend
+            self.conversation_history = []
+            self.session_start = datetime.now()
+            self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
+            
+            # Inicializar nuevo backend
+            if new_backend == "gguf":
+                model_path = kwargs.get("model_path")
+                if not model_path:
+                    raise ValueError("model_path required for GGUF backend")
+                
+                self._init_gguf_backend(
+                    model_key=None,
+                    model_path=model_path,
+                    repo_id=kwargs.get("repo_id"),
+                    filename=kwargs.get("filename"),
+                    n_gpu_layers=kwargs.get("n_gpu_layers", -1),
+                    n_ctx=kwargs.get("n_ctx", 8192)
+                )
+            elif new_backend == "transformers":
+                # Soportar ambos nombres (alias)
+                model_path = kwargs.get("model_path") or kwargs.get("model_name_or_path")
+                if not model_path:
+                    raise ValueError(
+                        "model_path or model_name_or_path required for Transformers backend"
+                    )
+                
+                self._init_transformers_backend(
+                    model_path=model_path,
+                    device=kwargs.get("device", "auto"),
+                    torch_dtype=kwargs.get("torch_dtype", "auto"),
+                    trust_remote_code=kwargs.get("trust_remote_code", False),
+                    load_in_8bit=kwargs.get("load_in_8bit", False),
+                    load_in_4bit=kwargs.get("load_in_4bit", False)
+                )
+            
+            # Actualizar información del modelo
+            if self.backend and self.backend.is_loaded:
+                model_info = self.backend.get_model_info()
+                self.model_type = model_info.get("model_type", "unknown")
+                self.supports_native_system = model_info.get("supports_native_system", False)
+                self.chat_format = model_info.get("chat_format")
+            
+            print(f"[READY] Model loaded successfully")
+            print(f"[SESSION] New ID: {self.session_id}")
+            
+            # Mantener el prompt del sistema si está configurado
+            if self.system_prompt:
+                print(f"[SYSTEM] Keeping active prompt")
+            
+            print("=" * 60 + "\n")
+            return True
+            
         except Exception as e:
-            print(f"[ERROR] Failed to load model: {e}")
-            print(f"[INFO] Check if file is a valid GGUF model")
-            print(f"[INFO] You may need to re-download or try a different model")
+            print(f"[ERROR] Failed to change model: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-
-        # Reiniciar sesión (nuevo modelo = nueva conversación)
-        self.conversation_history = []
-        self.session_start = datetime.now()
-        self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
-
-        print(f"[READY] Model loaded successfully")
-        print(f"[SESSION] New ID: {self.session_id}")
-
-        # Mantener el prompt del sistema si está configurado
-        if self.system_prompt:
-            print(f"[SYSTEM] Keeping active prompt")
-
-        print("=" * 60 + "\n")
-        return True
