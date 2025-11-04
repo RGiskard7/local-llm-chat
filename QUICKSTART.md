@@ -36,14 +36,20 @@ pip install -e .
 ```bash
 # Después de los pasos 1-2 anteriores:
 
-# 3. Instalar con backend Transformers
+# 3. Instalar con backend Transformers (incluye transformers + accelerate)
 pip install -e ".[transformers]"
 
-# O con TODO (Transformers + cuantización)
+# O con TODO (Transformers + cuantización + accelerate + bitsandbytes)
 pip install -e ".[quantization]"
 
 # 4. ✅ Listo para GGUF y Transformers!
 ```
+
+**¿Qué incluye cada instalación?**
+- `[transformers]`: transformers + accelerate (gestión de memoria y balanceo de dispositivos)
+- `[quantization]`: transformers + accelerate + bitsandbytes (cuantización 8-bit/4-bit)
+
+**Nota sobre `accelerate`**: Se instala automáticamente con `[transformers]`. Es necesario para usar `device_map="auto"` y gestión eficiente de memoria. Sin él, los modelos Transformers funcionan pero con selección manual de dispositivo.
 
 ## Instalación con RAG (Python 3.11/3.12 solamente)
 
@@ -155,13 +161,20 @@ python main.py
 ### Ejemplo 1: Modelo GGUF Local
 
 ```python
-from local_llm_chat import UniversalChatClient
+from local_llm_chat import UniversalChatClient, Config
+
+# Cargar configuración
+config = Config()
 
 # Backend GGUF (por defecto)
 client = UniversalChatClient(
     backend="gguf",  # o simplemente omitir (es el default)
     model_path="models/llama-3.1-8b-instruct.gguf",
-    system_prompt="Eres un asistente útil."
+    system_prompt="Eres un asistente útil.",
+    n_ctx=config.model.n_ctx,
+    n_gpu_layers=config.model.n_gpu_layers,
+    verbose=config.model.verbose,
+    llm_config=config.llm
 )
 
 # Generar respuesta
@@ -233,6 +246,7 @@ response = client.infer("Nueva pregunta")
 ## Documentación Adicional
 
 - **Documentación Completa**: Ver `README.md`
+- **Configuración**: Ver `CONFIG.md`
 - **Arquitectura Multi-Backend**: Ver `doc/BACKENDS_ARCHITECTURE.md`
 - **Ejemplos Completos**: Ver `EXAMPLES.md` (19 ejemplos)
 - **Guía de Migración v2.0**: Ver `MIGRATION_v2.md`

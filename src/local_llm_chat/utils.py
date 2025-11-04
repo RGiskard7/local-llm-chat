@@ -6,6 +6,7 @@ import os
 from .model_config import (
     get_hardware_info,
     get_smart_recommendations,
+    get_transformers_recommendations,
     estimate_model_size,
     POPULAR_MODELS
 )
@@ -27,7 +28,7 @@ def list_local_models():
     return sorted(gguf_files)
 
 def show_available_models():
-    """Muestra los modelos locales y recomendaciones inteligentes."""
+    """Muestra los modelos locales y recomendaciones inteligentes para GGUF y Transformers."""
     print("\n" + "=" * 60)
     print("AVAILABLE MODELS")
     print("=" * 60)
@@ -53,31 +54,48 @@ def show_available_models():
     else:
         print("\nLOCAL MODELS: None found")
 
-    # Recomendaciones inteligentes
-    print("\nRECOMMENDED MODELS (based on your hardware):")
-    recommendations = get_smart_recommendations(timeout=10)
+    # Recomendaciones GGUF
+    print("\n" + "=" * 60)
+    print("GGUF MODELS (Recommended - Fast on CPU)")
+    print("=" * 60)
+    gguf_recommendations = get_smart_recommendations(timeout=10)
 
-    if recommendations:
-        for i, model in enumerate(recommendations[:5], 1):  # Top 5
+    if gguf_recommendations:
+        for i, model in enumerate(gguf_recommendations[:5], 1):  # Top 5
             print(f"  {i}. {model['repo_id']}")
             print(f"     Size: ~{model['estimated_size_gb']}GB | Type: {model['model_type']}")
             print(f"     Downloads: {model['downloads']:,}")
             print(f"     Use: /download {i}")
     else:
-        print("  [INFO] Could not fetch recommendations (using fallback)")
-        print("\nFALLBACK MODELS:")
-        for key, info in POPULAR_MODELS.items():
-            print(f"  [{key}] {info['description']}")
+        print("  [INFO] Could not fetch GGUF recommendations")
+
+    # Recomendaciones Transformers
+    print("\n" + "=" * 60)
+    print("TRANSFORMERS MODELS (More RAM, any HF model)")
+    print("=" * 60)
+    transformers_recommendations = get_transformers_recommendations(timeout=10)
+
+    if transformers_recommendations:
+        for i, model in enumerate(transformers_recommendations[:5], 1):  # Top 5
+            idx = len(gguf_recommendations) + i  # Continuar numeración
+            print(f"  {idx}. {model['repo_id']}")
+            print(f"     Size: ~{model['estimated_size_gb']}GB | Type: {model['model_type']}")
+            print(f"     Downloads: {model['downloads']:,}")
+            print(f"     Use: /download {idx}")
+    else:
+        print("  [INFO] Could not fetch Transformers recommendations")
 
     print("\n" + "=" * 60)
     print("USAGE:")
     print("  Change local: /changemodel <path>")
     print("  Download recommended: /download <number>")
-    print("  Download fallback: Restart with model_key=<key>")
+    print("  GGUF = Fast on CPU, lower RAM usage")
+    print("  Transformers = More models available, higher RAM")
     print("=" * 60 + "\n")
 
-    # Retornar recomendaciones para usar en el comando download
-    return recommendations if recommendations else []
+    # Retornar recomendaciones combinadas para usar en el comando download
+    all_recommendations = gguf_recommendations + transformers_recommendations
+    return all_recommendations if all_recommendations else []
 
 def show_help():
     """Muestra la referencia de comandos."""
@@ -93,7 +111,9 @@ def show_help():
     print("  /help            Show this help menu")
     print("\nMODEL MANAGEMENT:")
     print("  /models          List available models + smart recommendations")
-    print("  /download <num>  Download recommended model by number")
+    print("  /download <num|id>  Download model by number or HuggingFace ID")
+    print("                   Examples: /download 1")
+    print("                             /download meta-llama/Llama-3.1-8B-GGUF")
     print("  /changemodel <path>  Switch to different model")
     print("\nSYSTEM PROMPT:")
     print("  /system <text>   Set custom system prompt")

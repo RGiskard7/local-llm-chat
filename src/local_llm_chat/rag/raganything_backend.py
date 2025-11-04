@@ -79,17 +79,18 @@ class RAGAnythingBackend(RAGBackend):
                     print(f"[RAG-LLM] Processing prompt ({len(prompt)} chars)...")
                     
                     try:
-                        # Ejecutar inferencia con parámetros OPTIMIZADOS para RAG
+                        # Ejecutar inferencia con parámetros desde config
                         def sync_infer():
                             messages = self.client._build_messages_with_system(prompt)
-                            
-                            # Parámetros optimizados para extracción rápida
+
+                            # Usar valores de configuración
                             out = self.client.llm.create_chat_completion(
                                 messages=messages,
-                                max_tokens=512,      # Suficiente para entidades/relaciones
-                                temperature=0.1,     # Más determinístico
-                                top_p=0.9,
-                                repeat_penalty=1.1,
+                                max_tokens=self.config.llm.max_tokens,
+                                temperature=self.config.llm.temperature,
+                                top_p=self.config.llm.top_p,
+                                repeat_penalty=self.config.llm.repeat_penalty,
+                                top_k=self.config.llm.top_k,
                                 stop=["\n\n\n"],    # Detener en líneas vacías múltiples
                             )
                             return out["choices"][0]["message"]["content"]

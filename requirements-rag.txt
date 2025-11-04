@@ -1,25 +1,42 @@
-# ⚠️ Dependencias RAG opcionales - Incompatibles con Python 3.13
-# Para usar RAG, instalar con Python 3.11 o 3.12:
-# pip install -r requirements-rag.txt
+# ============================================
+# Dependencias RAG - Instalación opcional
+# ============================================
+#
+# OPCIÓN 1 - SimpleRAG (RECOMENDADO, ligero):
+#   Compatible con Python 3.8-3.13
+#   Instalar solo: pip install chromadb sentence-transformers pypdf
+#
+# OPCIÓN 2 - RAG completo (SimpleRAG + RAG-Anything):
+#   Solo Python 3.11/3.12 (incompatible con 3.13)
+#   Instalar todo: pip install -r requirements-rag.txt
+#
+# Si tienes problemas instalando todo, usa solo OPCIÓN 1.
+# ============================================
 
-# Fix: future debe ser >=1.0.0 para compatibilidad con Python 3.11+
+# ============================================
+# SimpleRAG - Backend rápido (INSTALAR PRIMERO)
+# ============================================
+chromadb>=0.5.0
+sentence-transformers>=2.2.0
+pypdf>=6.0.0
+
+# ============================================
+# RAG-Anything - Backend avanzado (OPCIONAL, PESADO)
+# ⚠️ Solo Python 3.11/3.12
+# ⚠️ Comentar si tienes problemas de instalación
+# ============================================
 future>=1.0.0
-
-# Fix: configparser debe ser >=5.0.0 (versiones antiguas usan reload() incompatible)
 configparser>=5.0.0
-
-# RAG-Anything y dependencias
 raganything>=1.2.0
 magic-pdf[full]>=0.8.0
+httpx>=0.28.0
+nest-asyncio>=1.5.0
 
-# Dependencias adicionales RAG
-sentence-transformers>=2.2.0
-chromadb>=0.5.0
-
-# NOTA: Estas dependencias requieren Python 3.11 o 3.12 debido a:
-# - lightrag-hku -> future (versión antigua incompatible con Python 3.13)
-# - lightrag-hku -> configparser (versiones antiguas usan reload() incompatible)
-#
-# Si intentas instalar en Python 3.13, obtendrás:
-# ImportError: cannot import name 'Sequence' from 'collections'
+# ============================================
+# NOTAS IMPORTANTES
+# ============================================
+# - RAG-Anything requiere Python 3.11 o 3.12
+# - magic-pdf[full] tiene muchas dependencias (puede tardar)
+# - Si hay conflictos de resolución, comenta las líneas 27-33
+# - SimpleRAG funciona perfectamente solo (líneas 18-20)
 

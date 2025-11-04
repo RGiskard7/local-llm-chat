@@ -49,11 +49,20 @@ CHAT_FORMAT_MAP = {
 }
 
 # Hardware-based model size recommendations (GB)
+# GGUF models (cuantizados, menos RAM)
 RAM_SIZE_THRESHOLDS = [
     (6, 3.0, ["1b", "3b"]),       # < 6GB RAM: small models
     (10, 7.0, ["3b", "7b"]),      # 6-10GB RAM: medium models
     (16, 10.0, ["7b", "8b"]),     # 10-16GB RAM: large models
     (float('inf'), 20.0, ["7b", "8b", "13b"])  # > 16GB RAM: very large models
+]
+
+# Transformers models (full precision, más RAM)
+TRANSFORMERS_RAM_THRESHOLDS = [
+    (8, 2.0, ["0.5b", "500m", "560m", "0.6b"]),    # < 8GB RAM: tiny models
+    (16, 4.0, ["1b", "1.5b"]),                      # 8-16GB RAM: small models
+    (32, 8.0, ["3b", "7b"]),                        # 16-32GB RAM: medium models
+    (float('inf'), 16.0, ["7b", "8b"])              # > 32GB RAM: large models
 ]
 
 # Model size patterns (parameters → base size in GB)
@@ -78,6 +87,10 @@ QUANTIZATION_FACTORS = {
     "q6_k": 0.75,
     "q8": 1.0,
 }
+
+# Full precision size multiplier (Transformers sin cuantización)
+# Un modelo de 7B parámetros en float32/float16 ocupa ~2x el tamaño base
+FULL_PRECISION_SIZE_MULTIPLIER = 2.0
 
 
 def detect_model_type(model_name_or_path: str) -> str:
@@ -296,14 +309,14 @@ def estimate_model_size(model_name: str) -> float:
 
 def get_smart_recommendations(timeout: int = 10) -> list:
     """
-    Consulta REAL la API de Hugging Face para obtener modelos populares.
+    Consulta REAL la API de Hugging Face para obtener modelos GGUF populares.
     Filtra basándose en hardware REAL detectado del sistema.
     
     Args:
         timeout: Timeout para la consulta API (no usado actualmente)
         
     Returns:
-        Lista de modelos recomendados con su información REAL de HF
+        Lista de modelos GGUF recomendados con su información REAL de HF
     """
     try:
         from huggingface_hub import HfApi
@@ -359,7 +372,8 @@ def get_smart_recommendations(timeout: int = 10) -> list:
                     'model_type': model_type,
                     'estimated_size_gb': round(estimated_size, 1),
                     'downloads': getattr(model, 'downloads', 0),
-                    'fits_hardware': True
+                    'fits_hardware': True,
+                    'backend': 'gguf'
                 })
                 
                 seen_base_names.add(base_name)
@@ -372,6 +386,102 @@ def get_smart_recommendations(timeout: int = 10) -> list:
         
     except Exception as e:
         # Fallback: retornar lista vacía para usar hardcoded
+        return []
+
+
+def get_transformers_recommendations(timeout: int = 10) -> list:
+    """
+    Consulta la API de Hugging Face para obtener modelos Transformers populares.
+    Filtra basándose en hardware REAL detectado (Transformers necesita más RAM).
+    
+    Args:
+        timeout: Timeout para la consulta API
+        
+    Returns:
+        Lista de modelos Transformers recomendados
+    """
+    try:
+        from huggingface_hub import HfApi
+        
+        # Detectar hardware REAL
+        hw = get_hardware_info()
+        ram_available = hw['ram_available_gb']
+        
+        # Determinar tamaños usando thresholds de Transformers
+        max_size = 16.0
+        recommended_params = ["7b", "8b"]
+        
+        for threshold, size_limit, params in TRANSFORMERS_RAM_THRESHOLDS:
+            if ram_available < threshold:
+                max_size = size_limit
+                recommended_params = params
+                break
+        
+        # Consultar API de Hugging Face
+        api = HfApi()
+        models = api.list_models(
+            filter="text-generation-inference",
+            sort="downloads",
+            direction=-1,
+            limit=200,  # Más porque hay mucha variedad
+        )
+        
+        recommendations = []
+        seen_base_names = set()
+        
+        for model in models:
+            model_id = model.modelId
+            model_lower = model_id.lower()
+            
+            # Saltar modelos GGUF (ya están en otra lista)
+            if "gguf" in model_lower:
+                continue
+            
+            # Filtrar por tamaño de parámetros
+            if not any(param in model_lower for param in recommended_params):
+                continue
+            
+            # Evitar duplicados del mismo modelo base
+            base_name = model_id.split('/')[1] if '/' in model_id else model_id
+            base_name = base_name.split('-')[0]
+            if base_name in seen_base_names:
+                continue
+            
+            # Estimar tamaño (modelos Transformers sin cuantización)
+            estimated_size = 0
+            for patterns, base_gb in MODEL_SIZE_PATTERNS:
+                if any(p in model_lower for p in patterns):
+                    estimated_size = base_gb * FULL_PRECISION_SIZE_MULTIPLIER
+                    break
+            
+            if estimated_size == 0 or estimated_size > max_size:
+                continue
+            
+            # Detectar tipo de modelo
+            model_type = detect_model_type(model_id)
+            
+            recommendations.append({
+                'repo_id': model_id,
+                'model_type': model_type,
+                'estimated_size_gb': round(estimated_size, 1),
+                'downloads': getattr(model, 'downloads', 0),
+                'fits_hardware': True,
+                'backend': 'transformers'
+            })
+            
+            seen_base_names.add(base_name)
+            
+            # Limitar a top 10
+            if len(recommendations) >= 10:
+                break
+        
+        # Ordenar por downloads (métrica objetiva)
+        recommendations.sort(key=lambda x: -x['downloads'])
+        
+        return recommendations[:10]
+        
+    except Exception as e:
+        # Fallback: retornar lista vacía
         return []
 
 
@@ -425,8 +535,9 @@ def detect_backend_type(model_identifier: str) -> str:
     if os.path.exists(model_identifier) and model_identifier.endswith('.gguf'):
         return "gguf"
     
-    # Si contiene .gguf en el nombre (incluso si no existe aún)
-    if '.gguf' in model_identifier.lower():
+    # Si contiene .gguf o GGUF en el nombre (incluso si no existe aún)
+    model_lower = model_identifier.lower()
+    if '.gguf' in model_lower or 'gguf' in model_lower:
         return "gguf"
     
     # Si parece un nombre de HuggingFace (contiene /)

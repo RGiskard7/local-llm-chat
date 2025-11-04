@@ -169,7 +169,9 @@ class TransformersBackend(ModelBackend):
             # Configurar dtype
             dtype = self.torch_dtype
             if dtype == "auto":
-                dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+                # Usar float16 si hay GPU (CUDA o MPS), sino float32
+                has_gpu = torch.cuda.is_available() or (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
+                dtype = torch.float16 if has_gpu else torch.float32
             elif dtype == "float16":
                 dtype = torch.float16
             elif dtype == "bfloat16":
@@ -179,12 +181,42 @@ class TransformersBackend(ModelBackend):
             
             print(f"[TRANSFORMERS] Dtype: {dtype}")
             
-            # Configurar dispositivo
-            device_map = self.device
-            if device_map == "auto":
-                device_map = "auto" if torch.cuda.is_available() else "cpu"
+            # Verificar si accelerate está disponible (requerido para device_map)
+            try:
+                import accelerate
+                accelerate_available = True
+            except ImportError:
+                accelerate_available = False
             
-            print(f"[TRANSFORMERS] Device: {device_map}")
+            # Configurar device_map para HuggingFace
+            # Nota: device_map="auto" requiere accelerate
+            device_map = None
+            if self.device == "auto":
+                if accelerate_available:
+                    # Usar device_map="auto" de HF para balanceo inteligente
+                    if torch.cuda.is_available():
+                        print(f"[TRANSFORMERS] Detected CUDA GPU - using HF auto device_map")
+                    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                        print(f"[TRANSFORMERS] Detected Metal (MPS) - using HF auto device_map")
+                    else:
+                        print(f"[TRANSFORMERS] No GPU detected - using CPU")
+                    device_map = "auto"
+                else:
+                    # Fallback sin accelerate: cargar en dispositivo específico
+                    print(f"[TRANSFORMERS] accelerate not installed, using fallback device selection")
+                    if torch.cuda.is_available():
+                        device_map = "cuda"
+                        print(f"[TRANSFORMERS] Using CUDA")
+                    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                        device_map = "mps"
+                        print(f"[TRANSFORMERS] Using Metal (MPS)")
+                    else:
+                        device_map = "cpu"
+                        print(f"[TRANSFORMERS] Using CPU")
+            else:
+                # Usuario especificó dispositivo explícito
+                device_map = self.device
+                print(f"[TRANSFORMERS] Using device: {device_map}")
             
             # Cargar tokenizer
             print("[TRANSFORMERS] Loading tokenizer...")
@@ -235,6 +267,7 @@ class TransformersBackend(ModelBackend):
         temperature: float = 0.7,
         top_p: float = 0.9,
         top_k: int = 50,
+        repeat_penalty: float = 1.0,
         do_sample: bool = True,
         **kwargs
     ) -> Dict[str, Any]:
@@ -247,6 +280,7 @@ class TransformersBackend(ModelBackend):
             temperature: Temperatura
             top_p: Nucleus sampling
             top_k: Top-k sampling
+            repeat_penalty: Penalización por repetición (HF: repetition_penalty)
             do_sample: Activar sampling (False = greedy)
             **kwargs: Parámetros adicionales
             
@@ -298,6 +332,7 @@ class TransformersBackend(ModelBackend):
                     temperature=temperature if do_sample else 1.0,
                     top_p=top_p if do_sample else 1.0,
                     top_k=top_k if do_sample else 50,
+                    repetition_penalty=repeat_penalty,  # HF usa repetition_penalty
                     do_sample=do_sample,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,

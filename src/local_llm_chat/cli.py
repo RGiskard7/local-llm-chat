@@ -40,6 +40,9 @@ def run_cli():
     print("  UNIVERSAL CHAT CLIENT - TERMINAL INTERFACE")
     print("=" * 60)
 
+    # Cargar configuración (RESPONSABILIDAD DEL CLI, NO DEL CLIENT)
+    config = Config()
+
     # Mostrar modelos disponibles
     local_models = list_local_models()
     print("\nLOCAL MODELS:")
@@ -82,47 +85,74 @@ def run_cli():
             return
 
         model_to_download = cached_recommendations[idx]
+        backend_type = model_to_download.get('backend', 'gguf')
+        
         print(f"\n[DOWNLOAD] Starting download of {model_to_download['repo_id']}")
+        print(f"[INFO] Backend: {backend_type.upper()}")
         print(f"[INFO] Size: ~{model_to_download['estimated_size_gb']}GB")
         print(f"[INFO] This may take several minutes...")
 
         try:
-            api = HfApi()
+            if backend_type == 'gguf':
+                # GGUF: descargar archivo .gguf
+                api = HfApi()
+                files = api.list_repo_files(model_to_download['repo_id'])
+                gguf_files = [f for f in files if f.endswith('.gguf')]
 
-            files = api.list_repo_files(model_to_download['repo_id'])
-            gguf_files = [f for f in files if f.endswith('.gguf')]
+                if not gguf_files:
+                    print(f"[ERROR] No GGUF files found in {model_to_download['repo_id']}")
+                    return
 
-            if not gguf_files:
-                print(f"[ERROR] No GGUF files found in {model_to_download['repo_id']}")
-                return
-
-            preferred_file = None
-            for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
-                for f in gguf_files:
-                    if preference in f.lower():
-                        preferred_file = f
+                preferred_file = None
+                for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
+                    for f in gguf_files:
+                        if preference in f.lower():
+                            preferred_file = f
+                            break
+                    if preferred_file:
                         break
-                if preferred_file:
-                    break
 
-            if not preferred_file:
-                preferred_file = gguf_files[0]
+                if not preferred_file:
+                    preferred_file = gguf_files[0]
 
-            print(f"[INFO] Downloading file: {preferred_file}")
+                print(f"[INFO] Downloading file: {preferred_file}")
 
-            downloaded_path = hf_hub_download(
-                repo_id=model_to_download['repo_id'],
-                filename=preferred_file,
-                local_dir="./models",
-            )
+                downloaded_path = hf_hub_download(
+                    repo_id=model_to_download['repo_id'],
+                    filename=preferred_file,
+                    local_dir="./models",
+                )
 
-            print(f"[SUCCESS] Model downloaded successfully!")
-            print(f"[INFO] Loading model...")
+                print(f"[SUCCESS] Model downloaded successfully!")
+                print(f"[INFO] Loading model...")
 
-            client = UniversalChatClient(model_path=downloaded_path)
+                client = UniversalChatClient(
+                    backend="gguf",
+                    model_path=downloaded_path,
+                    n_ctx=config.model.n_ctx,
+                    n_gpu_layers=config.model.n_gpu_layers,
+                    verbose=config.model.verbose,
+                    llm_config=config.llm
+                )
+            
+            elif backend_type == 'transformers':
+                # Transformers: carga directamente (descarga automática)
+                print(f"[INFO] Loading Transformers model (auto-download from HuggingFace Hub)...")
+                
+                client = UniversalChatClient(
+                    backend="transformers",
+                    model_name_or_path=model_to_download['repo_id'],
+                    device="auto",
+                    verbose=config.model.verbose,
+                    llm_config=config.llm
+                )
+                
+                print(f"[SUCCESS] Model loaded successfully!")
 
         except Exception as e:
-            print(f"[ERROR] Download failed: {e}")
+            print(f"[ERROR] Download/load failed: {e}")
+            import traceback
+            traceback.print_exc()
             return
     else:
         # Hay modelos locales, preguntar cuál usar (comentario ya en español)
@@ -140,7 +170,14 @@ def run_cli():
             model_path = local_models[int(choice) - 1]
             print(f"\n[INIT] Loading: {os.path.basename(model_path)}")
             try:
-                client = UniversalChatClient(model_path=model_path)
+                # Pasar configuración explícitamente
+                client = UniversalChatClient(
+                    model_path=model_path,
+                    n_ctx=config.model.n_ctx,
+                    n_gpu_layers=config.model.n_gpu_layers,
+                    verbose=config.model.verbose,
+                    llm_config=config.llm
+                )
             except Exception as e:
                 print(f"[ERROR] Failed to initialize: {e}")
                 return
@@ -158,10 +195,7 @@ def run_cli():
 
     # Caché para recomendaciones (para evitar volver a consultar en /download)
     cached_recommendations = []
-    
-    # Configuración global
-    config = Config()
-    
+
     # RAG Manager - inicialización automática si hay documentos de sesiones previas
     rag_manager = None
     
@@ -255,65 +289,104 @@ def run_cli():
                 continue
 
             elif user_input.lower().startswith('/download '):
-                download_num = user_input[10:].strip()
-                if not download_num.isdigit():
-                    print("[ERROR] Usage: /download <number>")
-                    print("[INFO] Use /models to see available models")
+                download_arg = user_input[10:].strip()
+                
+                if not download_arg:
+                    print("[ERROR] Usage: /download <number|model_id>")
+                    print("[INFO] Examples:")
+                    print("  /download 1                              # Download from recommendations")
+                    print("  /download meta-llama/Llama-3.1-8B-GGUF  # Download specific model")
                     continue
-
-                idx = int(download_num) - 1
-                if not cached_recommendations or idx < 0 or idx >= len(cached_recommendations):
-                    print("[ERROR] Invalid model number")
-                    print("[INFO] Use /models to see available models first")
-                    continue
-
-                model_to_download = cached_recommendations[idx]
-                print(f"\n[DOWNLOAD] Starting download of {model_to_download['repo_id']}")
-                print(f"[INFO] Size: ~{model_to_download['estimated_size_gb']}GB")
-                print(f"[INFO] This may take several minutes...")
-
-                try:
-                    # Intentar encontrar el archivo GGUF correcto
-                    api = HfApi()
-
-                    # Listar archivos del repo (comentario ya en español)
-                    files = api.list_repo_files(model_to_download['repo_id'])
-                    gguf_files = [f for f in files if f.endswith('.gguf')]
-
-                    if not gguf_files:
-                        print(f"[ERROR] No GGUF files found in {model_to_download['repo_id']}")
+                
+                # Detectar si es número (recomendaciones) o ID de HuggingFace
+                if download_arg.isdigit():
+                    # Modo 1: Descargar desde recomendaciones (comportamiento actual)
+                    idx = int(download_arg) - 1
+                    if not cached_recommendations or idx < 0 or idx >= len(cached_recommendations):
+                        print("[ERROR] Invalid model number")
+                        print("[INFO] Use /models to see available models first")
                         continue
+                    
+                    model_info = cached_recommendations[idx]
+                    repo_id = model_info['repo_id']
+                    backend_type = model_info.get('backend', 'gguf')
+                    estimated_size = model_info.get('estimated_size_gb', 'unknown')
+                    
+                    print(f"\n[DOWNLOAD] Model: {repo_id}")
+                    print(f"[INFO] Backend: {backend_type.upper()}")
+                    print(f"[INFO] Estimated size: ~{estimated_size}GB")
+                
+                else:
+                    # Modo 2: Descargar modelo específico por ID de HuggingFace
+                    from .model_config import detect_backend_type
+                    
+                    repo_id = download_arg
+                    backend_type = detect_backend_type(repo_id)
+                    
+                    print(f"\n[DOWNLOAD] Model: {repo_id}")
+                    print(f"[INFO] Detected backend: {backend_type.upper()}")
+                
+                print(f"[INFO] This may take several minutes...")
+                
+                try:
+                    if backend_type == 'gguf':
+                        # GGUF: buscar y descargar archivo .gguf
+                        api = HfApi()
+                        files = api.list_repo_files(repo_id)
+                        gguf_files = [f for f in files if f.endswith('.gguf')]
 
-                    # Elegir el archivo más apropiado (comentario ya en español)
-                    preferred_file = None
-                    for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
-                        for f in gguf_files:
-                            if preference in f.lower():
-                                preferred_file = f
+                        if not gguf_files:
+                            print(f"[ERROR] No GGUF files found in {repo_id}")
+                            continue
+
+                        # Elegir el archivo más apropiado
+                        preferred_file = None
+                        for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
+                            for f in gguf_files:
+                                if preference in f.lower():
+                                    preferred_file = f
+                                    break
+                            if preferred_file:
                                 break
-                        if preferred_file:
-                            break
 
-                    if not preferred_file:
-                        preferred_file = gguf_files[0]  # Fallback al primero (comentario ya en español)
+                        if not preferred_file:
+                            preferred_file = gguf_files[0]
 
-                    print(f"[INFO] Downloading file: {preferred_file}")
+                        print(f"[INFO] Downloading file: {preferred_file}")
 
-                    # Descargar el modelo (comentario ya en español)
-                    downloaded_path = hf_hub_download(
-                        repo_id=model_to_download['repo_id'],
-                        filename=preferred_file,
-                        local_dir="./models",
-                    )
+                        downloaded_path = hf_hub_download(
+                            repo_id=repo_id,
+                            filename=preferred_file,
+                            local_dir="./models",
+                        )
 
-                    print(f"[SUCCESS] Model downloaded successfully!")
-                    print(f"[INFO] Saved to: {downloaded_path}")
-                    print(f"[INFO] Use: /changemodel {os.path.relpath(downloaded_path, '.')}")
+                        print(f"[SUCCESS] Model downloaded successfully!")
+                        print(f"[INFO] Saved to: {downloaded_path}")
+                        print(f"[INFO] Use: /changemodel {os.path.relpath(downloaded_path, '.')}")
+                    
+                    elif backend_type == 'transformers':
+                        # Transformers: cargar directamente (descarga automática)
+                        print(f"[INFO] Loading Transformers model (auto-download from HuggingFace Hub)...")
+                        print(f"[INFO] Switching to new model...")
+                        
+                        # Crear nuevo cliente con el modelo Transformers
+                        client = UniversalChatClient(
+                            backend="transformers",
+                            model_name_or_path=repo_id,
+                            device="auto",
+                            verbose=config.model.verbose,
+                            llm_config=config.llm
+                        )
+                        
+                        print(f"[SUCCESS] Model loaded successfully!")
+                        print(f"[INFO] You can now chat with {repo_id}")
 
                 except Exception as e:
-                    print(f"[ERROR] Download failed: {e}")
+                    print(f"[ERROR] Download/load failed: {e}")
+                    import traceback
+                    traceback.print_exc()
                     print(f"[INFO] You may need to download manually from:")
-                    print(f"[INFO] https://huggingface.co/{model_to_download['repo_id']}")
+                    print(f"[INFO] https://huggingface.co/{repo_id}")
 
                 continue
 
@@ -492,13 +565,9 @@ def run_cli():
 
                         RESPUESTA:"""
                         
-                        # 3. Llamar al LLM con el contexto (usando configuración)
-                        response = client.infer(
-                            rag_prompt, 
-                            max_tokens=config.llm.max_tokens,
-                            temperature=config.llm.temperature,
-                            top_p=config.llm.top_p
-                        )
+                        # 3. Llamar al LLM con el contexto
+                        # Los parámetros se toman de config automáticamente
+                        response = client.infer(rag_prompt)
                         print(response)
                     else:
                         # Sin contexto relevante, respuesta normal con disclaimer

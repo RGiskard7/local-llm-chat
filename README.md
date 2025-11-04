@@ -73,30 +73,45 @@ Para usar aceleración GPU en Windows/Linux con NVIDIA:
 ### Instalación Estándar (GGUF Backend)
 
 ```bash
-# Clonar el repositorio
+# 1. Clonar repositorio
 git clone https://github.com/RGiskard7/local-llm-chat.git
 cd local-llm-chat
 
-# Crear entorno virtual
+# 2. Crear entorno virtual
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
 
-# Instalar dependencias básicas (solo GGUF)
+# 3. Instalar dependencias básicas (solo GGUF)
 pip install -e .
 ```
+
+**Eso es todo para GGUF.** Solo necesitas 3 dependencias:
+- `llama-cpp-python` - Modelos GGUF
+- `huggingface-hub` - Descargar modelos
+- `psutil` - Detectar hardware
 
 ### Instalación con Transformers Backend
 
 ```bash
-# Instalar con soporte Transformers
+# Instalar con soporte Transformers (incluye transformers + accelerate)
 pip install -e ".[transformers]"
 
-# O con cuantización 8-bit/4-bit
+# O con cuantización 8-bit/4-bit (incluye transformers + accelerate + bitsandbytes)
 pip install -e ".[quantization]"
 
 # O todo (Transformers + RAG + cuantización)
 pip install -e ".[all]"
 ```
+
+**Nota**: `accelerate` se instala automáticamente con `[transformers]` o `[quantization]`. Es necesario para:
+- Gestión eficiente de memoria
+- Balanceo automático entre dispositivos (GPU/CPU)
+- Soporte para modelos grandes
+
+Si instalas solo las dependencias básicas (`pip install -e .`), los modelos Transformers funcionarán pero con selección manual de dispositivo (sin `device_map="auto"`).
 
 ### Instalación con RAG (Python 3.11/3.12 solamente)
 
@@ -124,34 +139,30 @@ Para usar aceleración GPU con NVIDIA:
 pip uninstall torch torchvision torchaudio  # Si ya está instalado
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# 2. Verificar CUDA
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# 2. Instalar dependencias del proyecto
+pip install -e ".[transformers]"
 
-# 3. Instalar el resto de dependencias
-pip install -e .
-```
-
-**Nota**: Si CUDA 12.1 no funciona, prueba con CUDA 11.8:
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu118
-```
-
-### Desde PyPI
-
-```bash
-pip install local-llm-chat
-```
-
-### Verificar Instalación
-
-```bash
-python verify_installation.py
-```
-
-### Verificar CUDA (Windows/Linux)
-
-```bash
+# 3. Verificar CUDA
 python verify_cuda.py
+```
+
+### (Opcional) Funcionalidad RAG
+
+Si quieres Q&A sobre documentos:
+
+```bash
+pip install chromadb sentence-transformers pypdf
+```
+
+Esto permite:
+- Cargar PDFs y TXT con `/load archivo.pdf`
+- Hacer preguntas sobre el contenido
+- Búsqueda semántica en documentos
+
+### Verificar CUDA (opcional)
+
+```bash
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 
 ## Inicio Rápido
@@ -483,18 +494,28 @@ Cualquier modelo de Hugging Face compatible con `AutoModelForCausalLM`:
 
 ## Configuración
 
+### Sistema de Configuración Centralizada
+
+El proyecto usa un sistema de configuración híbrido con tres secciones:
+
+1. **Model**: Parámetros de carga del modelo (n_ctx, n_gpu_layers, verbose)
+2. **LLM**: Parámetros de inferencia (max_tokens, temperature, top_p, etc.)
+3. **RAG**: Parámetros de documentos (chunk_size, top_k, etc.)
+
+Ver [CONFIG.md](CONFIG.md) para documentación completa.
+
 ### System Prompts Personalizados
 
-Editar `src/chat_ia/prompts.py`:
+Editar `src/local_llm_chat/prompts.py`:
 
 ```python
 PROMPTS = {
     "coding": """Eres un programador experto especializado en Python.
     Proporcionas código limpio, bien documentado y siguiendo PEP 8.""",
-    
+
     "creative": """Eres un escritor creativo. Generas contenido original,
     descriptivo y envolvente.""",
-    
+
     "tutor": """Eres un tutor paciente y didáctico. Explicas conceptos
     complejos de forma simple y con ejemplos prácticos.""",
 }
@@ -550,7 +571,7 @@ local-llm-chat/
 │   ├── config.json           # Configuración por defecto
 │   └── rag/                  # Módulo RAG
 │       ├── base.py           # Interfaz RAGBackend
-│       ├── simple.py         # SimpleRAG (ChromaDB)
+│       ├── simple_rag_backend.py # SimpleRAG (ChromaDB)
 │       ├── raganything_backend.py  # RAG-Anything
 │       └── manager.py        # RAGManager
 ├── tests/                    # Suite de pruebas
@@ -586,7 +607,7 @@ pip install pytest black mypy flake8
 pytest
 
 # Con cobertura
-pytest --cov=src/chat_ia
+pytest --cov=src/local_llm_chat
 
 # Tests específicos
 pytest tests/test_model_config.py
@@ -703,7 +724,7 @@ Las conversaciones se guardan automáticamente en `./chat_logs/` con formato JSO
 ### Error: Importación de Módulo
 
 ```bash
-ModuleNotFoundError: No module named 'chat_ia'
+ModuleNotFoundError: No module named 'local_llm_chat'
 ```
 
 **Soluciones:**
@@ -722,6 +743,34 @@ ModuleNotFoundError: No module named 'chat_ia'
    ```bash
    python main.py
    ```
+
+### Error: accelerate no instalado (Transformers)
+
+```bash
+ValueError: Using a `device_map` requires `accelerate`. 
+You can install it with `pip install accelerate`
+```
+
+**Causa**: Estás intentando usar modelos Transformers sin tener `accelerate` instalado.
+
+**Soluciones:**
+
+1. **Recomendado**: Instalar con soporte completo Transformers:
+   ```bash
+   pip install -e ".[transformers]"
+   ```
+
+2. **Alternativa**: Instalar solo accelerate:
+   ```bash
+   pip install accelerate
+   ```
+
+3. **Sin accelerate**: El sistema tiene un fallback automático que funciona sin `accelerate`, pero con gestión de memoria menos eficiente. Si ves este error, el fallback debería activarse automáticamente.
+
+**Nota**: `accelerate` es necesario para:
+- Gestión eficiente de memoria
+- Balanceo automático entre GPU/CPU
+- Modelos grandes
 
 ### Error: GPU No Detectada
 

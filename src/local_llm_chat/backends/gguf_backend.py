@@ -131,6 +131,7 @@ class GGUFBackend(ModelBackend):
         temperature: float = 0.7,
         top_p: float = 0.9,
         repeat_penalty: float = 1.1,
+        top_k: int = 40,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -142,6 +143,7 @@ class GGUFBackend(ModelBackend):
             temperature: Temperatura
             top_p: Nucleus sampling
             repeat_penalty: Penalización de repetición
+            top_k: Top-k sampling
             **kwargs: Parámetros adicionales
             
         Returns:
@@ -160,6 +162,7 @@ class GGUFBackend(ModelBackend):
                 temperature=temperature,
                 top_p=top_p,
                 repeat_penalty=repeat_penalty,
+                top_k=top_k,
             )
             
             elapsed = time.time() - start_time

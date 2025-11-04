@@ -62,7 +62,7 @@ class RAGManager:
         
         # Cargar backend dinámicamente
         if backend == "simple":
-            from .simple import SimpleRAG
+            from .simple_rag_backend import SimpleRAG
             backend_class = SimpleRAG
             if working_dir is None:
                 working_dir = "./simple_rag_data"

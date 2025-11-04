@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-llm-chat"
-version = "2.0.1"
+version = "2.0.2"
 description = "Local LLM Chat - Universal interface for local language models supporting GGUF and Transformers"
 readme = "README.md"
 authors = [
@@ -53,12 +53,14 @@ quantization = [
 rag = [
     "chromadb>=0.5.0",
     "sentence-transformers>=2.2.0",
-    "pypdf>=3.0.0",
+    "pypdf>=6.0.0",
 ]
 rag-full = [
     "chromadb>=0.5.0",
     "sentence-transformers>=2.2.0",
-    "pypdf>=3.0.0",
+    "pypdf>=6.0.0",
+    "future>=1.0.0",
+    "configparser>=5.0.0",
     "raganything>=1.2.0",
     "magic-pdf[full]>=0.8.0",
     "httpx>=0.28.0",
@@ -70,18 +72,17 @@ all = [
     "bitsandbytes>=0.41.0",
     "chromadb>=0.5.0",
     "sentence-transformers>=2.2.0",
-    "pypdf>=3.0.0",
+    "pypdf>=6.0.0",
+    "future>=1.0.0",
+    "configparser>=5.0.0",
     "raganything>=1.2.0",
     "magic-pdf[full]>=0.8.0",
     "httpx>=0.28.0",
     "nest-asyncio>=1.5.0",
 ]
-cuda = [
-    "torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu121",
-]
-cuda118 = [
-    "torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu118",
-]
+# Note: CUDA-specific PyTorch installations should be done manually:
+# pip install torch --index-url https://download.pytorch.org/whl/cu121
+# or use the cuda extras which will be handled separately
 
 [project.urls]
 Homepage = "https://github.com/RGiskard7/local-llm-chat"

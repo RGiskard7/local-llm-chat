@@ -28,8 +28,18 @@ Uso básico:
 
 from .base import RAGBackend
 from .manager import RAGManager
-from .simple import SimpleRAG
-from .raganything_backend import RAGAnythingBackend
+
+# Imports condicionales para backends RAG opcionales
+# (mismo patrón que backends/__init__.py)
+try:
+    from .simple_rag_backend import SimpleRAG
+except ImportError:
+    SimpleRAG = None
+
+try:
+    from .raganything_backend import RAGAnythingBackend
+except ImportError:
+    RAGAnythingBackend = None
 
 __all__ = [
     "RAGBackend",

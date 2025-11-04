@@ -7,15 +7,79 @@ Soporta: GGUF (llama-cpp-python) y Transformers (Hugging Face)
 import os
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from huggingface_hub import hf_hub_download
 
 from .backends import GGUFBackend, TransformersBackend, TRANSFORMERS_AVAILABLE
-from .model_config import get_model_info
+from .model_config import get_model_info, detect_backend_type
 
 # Configuración
 LOGS_DIR = "./chat_logs"
 os.makedirs(LOGS_DIR, exist_ok=True)
+
+
+class ConversationManager:
+    """
+    Gestiona el historial de conversación y métricas de sesión.
+    Responsabilidad única: tracking de conversaciones.
+    """
+    
+    def __init__(self, session_id: str = None):
+        self.conversation_history: List[Dict] = []
+        self.session_start = datetime.now()
+        self.session_id = session_id or self.session_start.strftime("%Y%m%d_%H%M%S")
+    
+    def add_message(self, user_msg: str, assistant_msg: str, metrics: Dict[str, Any]):
+        """Añade un intercambio al historial"""
+        self.conversation_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "user": user_msg,
+            "assistant": assistant_msg,
+            "metrics": metrics
+        })
+    
+    def clear_history(self):
+        """Limpia el historial"""
+        self.conversation_history = []
+    
+    def get_history(self) -> List[Dict]:
+        """Retorna el historial completo"""
+        return self.conversation_history.copy()
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Calcula estadísticas de la sesión"""
+        if not self.conversation_history:
+            return {}
+        
+        total_time = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+        
+        for entry in self.conversation_history:
+            if 'metrics' in entry:
+                m = entry['metrics']
+                total_time += m.get('elapsed_seconds', 0)
+                total_prompt_tokens += m.get('prompt_tokens', 0)
+                total_completion_tokens += m.get('completion_tokens', 0)
+                total_tokens += m.get('total_tokens', 0)
+        
+        avg_time = total_time / len(self.conversation_history)
+        
+        return {
+            "messages": len(self.conversation_history),
+            "total_time": total_time,
+            "avg_time": avg_time,
+            "total_tokens": total_tokens,
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens
+        }
+    
+    def reset_session(self, session_id: str = None):
+        """Reinicia la sesión con un nuevo ID"""
+        self.conversation_history = []
+        self.session_start = datetime.now()
+        self.session_id = session_id or self.session_start.strftime("%Y%m%d_%H%M%S")
 
 
 class UniversalChatClient:
@@ -75,6 +139,7 @@ class UniversalChatClient:
         # Parámetros comunes
         system_prompt: Optional[str] = None,
         verbose: bool = False,
+        llm_config=None,
     ):
         """
         Inicializa el cliente de chat universal
@@ -101,6 +166,7 @@ class UniversalChatClient:
             # Common params
             system_prompt: System prompt inicial
             verbose: Logs verbosos
+            llm_config: Configuración LLM (opcional, para infer())
         
         Nota sobre model_path vs model_name_or_path:
             Ambos parámetros son INTERCAMBIABLES y funcionan con cualquier backend.
@@ -114,6 +180,13 @@ class UniversalChatClient:
             Pero ambos funcionan con ambos backends.
         """
         print("[INIT] Universal Chat Client v2.0 - Multi-Backend")
+        
+        # Guardar config LLM para infer() (sin cargarla aquí)
+        self.llm_config = llm_config
+        
+        # Guardar parámetros del modelo para change_model()
+        self.n_ctx = n_ctx
+        self.n_gpu_layers = n_gpu_layers
         print("=" * 60)
         
         self.backend_type = backend.lower()
@@ -140,10 +213,13 @@ class UniversalChatClient:
         self.system_prompt = system_prompt
         self.preset_name = None
         
-        # Historial de conversación
-        self.conversation_history = []
-        self.session_start = datetime.now()
-        self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
+        # Gestión de conversación (delegada a ConversationManager)
+        self._conversation = ConversationManager()
+        
+        # Propiedades públicas para compatibilidad de API
+        self.conversation_history = self._conversation.conversation_history
+        self.session_start = self._conversation.session_start
+        self.session_id = self._conversation.session_id
         
         # Inicializar backend según tipo
         if self.backend_type == "gguf":
@@ -170,7 +246,7 @@ class UniversalChatClient:
             self.chat_format = model_info.get("chat_format")
             
             print("[READY] Model loaded successfully")
-            print(f"[SESSION] ID: {self.session_id}")
+            print(f"[SESSION] ID: {self._conversation.session_id}")
             
             if self.system_prompt:
                 preview = self.system_prompt[:80] + "..." if len(self.system_prompt) > 80 else self.system_prompt
@@ -233,6 +309,12 @@ class UniversalChatClient:
         success = self.backend.load_model()
         if not success:
             raise RuntimeError("Failed to load GGUF model")
+        
+        # Obtener información del modelo del backend
+        model_info = self.backend.get_model_info()
+        self.model_type = model_info.get("model_type", "unknown")
+        self.supports_native_system = model_info.get("supports_native_system", False)
+        self.chat_format = model_info.get("chat_format")
     
     def _init_transformers_backend(
         self,
@@ -343,7 +425,7 @@ class UniversalChatClient:
         messages = []
         
         # Agregar historial de conversación
-        for entry in self.conversation_history:
+        for entry in self._conversation.conversation_history:
             messages.append({"role": "user", "content": entry["user"]})
             messages.append({"role": "assistant", "content": entry["assistant"]})
         
@@ -359,8 +441,11 @@ class UniversalChatClient:
     def infer(
         self, 
         prompt: str, 
-        max_tokens: int = 256,
-        temperature: float = 0.7,
+        max_tokens: int = None,
+        temperature: float = None,
+        top_p: float = None,
+        repeat_penalty: float = None,
+        top_k: int = None,
         **kwargs
     ) -> str:
         """
@@ -368,15 +453,63 @@ class UniversalChatClient:
         
         Args:
             prompt: Mensaje del usuario
-            max_tokens: Máximo de tokens a generar
-            temperature: Temperatura para sampling
+            max_tokens: Máximo de tokens a generar (> 0)
+            temperature: Temperatura para sampling (>= 0)
+            top_p: Nucleus sampling (0-1)
+            repeat_penalty: Penalización de repetición (> 0)
+            top_k: Top-k sampling (> 0)
             **kwargs: Parámetros adicionales específicos del backend
             
         Returns:
             Respuesta del modelo
+            
+        Raises:
+            RuntimeError: Si el modelo no está cargado
+            ValueError: Si los parámetros son inválidos
         """
+        # Validaciones básicas
         if not self.backend or not self.backend.is_loaded:
             raise RuntimeError("Model not loaded")
+        
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt cannot be empty")
+        
+        # Usar valores de llm_config si está disponible y no se especifican
+        if self.llm_config:
+            if max_tokens is None:
+                max_tokens = self.llm_config.max_tokens
+            if temperature is None:
+                temperature = self.llm_config.temperature
+            if top_p is None:
+                top_p = self.llm_config.top_p
+            if repeat_penalty is None:
+                repeat_penalty = self.llm_config.repeat_penalty
+            if top_k is None:
+                top_k = getattr(self.llm_config, 'top_k', 40)
+        else:
+            # Fallback a valores por defecto si no hay config
+            if max_tokens is None:
+                max_tokens = 256
+            if temperature is None:
+                temperature = 0.7
+            if top_p is None:
+                top_p = 0.9
+            if repeat_penalty is None:
+                repeat_penalty = 1.1
+            if top_k is None:
+                top_k = 40
+        
+        # Validar rangos de parámetros
+        if max_tokens <= 0:
+            raise ValueError(f"max_tokens must be > 0, got {max_tokens}")
+        if temperature < 0:
+            raise ValueError(f"temperature must be >= 0, got {temperature}")
+        if not (0 <= top_p <= 1):
+            raise ValueError(f"top_p must be between 0 and 1, got {top_p}")
+        if repeat_penalty <= 0:
+            raise ValueError(f"repeat_penalty must be > 0, got {repeat_penalty}")
+        if top_k <= 0:
+            raise ValueError(f"top_k must be > 0, got {top_k}")
         
         # Construir mensajes
         messages = self._build_messages_with_system(prompt)
@@ -386,6 +519,9 @@ class UniversalChatClient:
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
+            repeat_penalty=repeat_penalty,
+            top_k=top_k,
             **kwargs
         )
         
@@ -401,31 +537,31 @@ class UniversalChatClient:
         
         print(f"[METRICS] {time_str} | IN:{usage['prompt_tokens']} OUT:{usage['completion_tokens']} TOTAL:{usage['total_tokens']}")
         
-        # Guardar en historial
-        self.conversation_history.append({
-            "timestamp": datetime.now().isoformat(),
-            "user": prompt,
-            "assistant": response,
-            "metrics": {
+        # Guardar en historial usando ConversationManager
+        self._conversation.add_message(
+            user_msg=prompt,
+            assistant_msg=response,
+            metrics={
                 "elapsed_seconds": elapsed,
                 "prompt_tokens": usage["prompt_tokens"],
                 "completion_tokens": usage["completion_tokens"],
                 "total_tokens": usage["total_tokens"]
             }
-        })
+        )
         
         return response
     
     def save_log(self):
         """Guarda la conversación en un archivo JSON"""
-        filename_parts = [self.session_id]
+        history = self._conversation.get_history()
+        filename_parts = [self._conversation.session_id]
         
         filename_parts.append(self.model_type)
         
         if self.preset_name:
             filename_parts.append(self.preset_name)
-        elif self.conversation_history:
-            first_message = self.conversation_history[0]["user"]
+        elif history:
+            first_message = history[0]["user"]
             words = first_message.split()[:4]
             preview = "_".join(words)
             preview = "".join(c if c.isalnum() or c in "_ " else "" for c in preview)
@@ -439,18 +575,18 @@ class UniversalChatClient:
         model_info = self.backend.get_model_info() if self.backend else {}
         
         log_data = {
-            "session_id": self.session_id,
+            "session_id": self._conversation.session_id,
             "backend_type": self.backend_type,
             "model_type": self.model_type,
             "model_info": model_info,
             "chat_format": self.chat_format,
             "supports_native_system": self.supports_native_system,
             "preset_name": self.preset_name,
-            "session_start": self.session_start.isoformat(),
+            "session_start": self._conversation.session_start.isoformat(),
             "session_end": datetime.now().isoformat(),
             "system_prompt": self.system_prompt,
-            "total_messages": len(self.conversation_history),
-            "conversation": self.conversation_history
+            "total_messages": len(history),
+            "conversation": history
         }
         
         with open(log_file, 'w', encoding='utf-8') as f:
@@ -460,14 +596,15 @@ class UniversalChatClient:
     
     def show_history(self):
         """Muestra el historial de conversación"""
-        if not self.conversation_history:
+        history = self._conversation.get_history()
+        if not history:
             print("\n[INFO] No history available")
             return
         
         print("\n" + "=" * 60)
         print("CONVERSATION HISTORY")
         print("=" * 60)
-        for i, entry in enumerate(self.conversation_history, 1):
+        for i, entry in enumerate(history, 1):
             print(f"\n[{i}] USER:")
             print(f"    {entry['user']}")
             print(f"\n    ASSISTANT:")
@@ -487,31 +624,23 @@ class UniversalChatClient:
     
     def show_stats(self):
         """Muestra las estadísticas de la sesión"""
-        if not self.conversation_history:
+        stats = self._conversation.get_stats()
+        if not stats:
             print("\n[INFO] No statistics available")
             return
         
-        total_time = 0
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
-        total_tokens = 0
-        
-        for entry in self.conversation_history:
-            if 'metrics' in entry:
-                m = entry['metrics']
-                total_time += m.get('elapsed_seconds', 0)
-                total_prompt_tokens += m.get('prompt_tokens', 0)
-                total_completion_tokens += m.get('completion_tokens', 0)
-                total_tokens += m.get('total_tokens', 0)
-        
-        avg_time = total_time / len(self.conversation_history) if self.conversation_history else 0
+        total_time = stats['total_time']
+        avg_time = stats['avg_time']
+        total_tokens = stats['total_tokens']
+        total_prompt_tokens = stats['prompt_tokens']
+        total_completion_tokens = stats['completion_tokens']
         
         print("\n" + "=" * 60)
         print("SESSION STATISTICS")
         print("=" * 60)
         print(f"Backend: {self.backend_type}")
         print(f"Model: {self.model_type}")
-        print(f"Messages: {len(self.conversation_history)}")
+        print(f"Messages: {stats['messages']}")
         print(f"Total time: {int(total_time // 60)}m {int(total_time % 60)}s")
         print(f"Avg time/message: {avg_time:.1f}s")
         print(f"Total tokens: {total_tokens}")
@@ -521,6 +650,7 @@ class UniversalChatClient:
     
     def change_model(
         self,
+        model_path: Optional[str] = None,
         backend: Optional[str] = None,
         **kwargs
     ) -> bool:
@@ -528,7 +658,8 @@ class UniversalChatClient:
         Cambia a un modelo diferente (puede cambiar de backend)
         
         Args:
-            backend: Nuevo backend ("gguf" o "transformers", None = mismo)
+            model_path: Ruta al nuevo modelo (obligatorio)
+            backend: Nuevo backend ("gguf" o "transformers", None = auto-detectar)
             **kwargs: Parámetros específicos del backend
             
         Returns:
@@ -545,13 +676,28 @@ class UniversalChatClient:
             )
         """
         # Guardar sesión actual si hay historial
-        if self.conversation_history:
+        if self._conversation.get_history():
             self.save_log()
             print("[INFO] Previous session saved")
         
-        # Descargar modelo anterior
+        # Obtener model_path de kwargs si no se pasó explícitamente (compatibilidad)
+        if not model_path:
+            model_path = kwargs.get("model_path") or kwargs.get("model_name_or_path")
+        
+        if not model_path:
+            raise ValueError("model_path (or model_name_or_path) is required")
+        
+        # Si se pasa solo model_path sin backend, detectar automáticamente
+        if backend is None:
+            backend = detect_backend_type(model_path)
+        
+        # Descargar modelo anterior de memoria (fix memory leak)
         if self.backend:
-            self.backend.unload_model()
+            try:
+                print("[INFO] Unloading previous model...")
+                self.backend.unload_model()
+            except Exception as e:
+                print(f"[WARN] Failed to unload previous model: {e}")
         
         # Determinar backend
         new_backend = backend if backend else self.backend_type
@@ -561,13 +707,14 @@ class UniversalChatClient:
         try:
             # Reiniciar configuración
             self.backend_type = new_backend
-            self.conversation_history = []
-            self.session_start = datetime.now()
-            self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
+            self._conversation.reset_session()
+            # Actualizar referencias públicas
+            self.conversation_history = self._conversation.conversation_history
+            self.session_start = self._conversation.session_start
+            self.session_id = self._conversation.session_id
             
             # Inicializar nuevo backend
             if new_backend == "gguf":
-                model_path = kwargs.get("model_path")
                 if not model_path:
                     raise ValueError("model_path required for GGUF backend")
                 
@@ -576,12 +723,11 @@ class UniversalChatClient:
                     model_path=model_path,
                     repo_id=kwargs.get("repo_id"),
                     filename=kwargs.get("filename"),
-                    n_gpu_layers=kwargs.get("n_gpu_layers", -1),
-                    n_ctx=kwargs.get("n_ctx", 8192)
+                    n_gpu_layers=kwargs.get("n_gpu_layers", self.n_gpu_layers),
+                    n_ctx=kwargs.get("n_ctx", self.n_ctx)
                 )
             elif new_backend == "transformers":
-                # Soportar ambos nombres (alias)
-                model_path = kwargs.get("model_path") or kwargs.get("model_name_or_path")
+                # model_path ya está definido arriba, solo validar
                 if not model_path:
                     raise ValueError(
                         "model_path or model_name_or_path required for Transformers backend"
@@ -595,6 +741,8 @@ class UniversalChatClient:
                     load_in_8bit=kwargs.get("load_in_8bit", False),
                     load_in_4bit=kwargs.get("load_in_4bit", False)
                 )
+            else:
+                raise ValueError(f"Unknown backend: {new_backend}")
             
             # Actualizar información del modelo
             if self.backend and self.backend.is_loaded:
@@ -604,7 +752,7 @@ class UniversalChatClient:
                 self.chat_format = model_info.get("chat_format")
             
             print(f"[READY] Model loaded successfully")
-            print(f"[SESSION] New ID: {self.session_id}")
+            print(f"[SESSION] New ID: {self._conversation.session_id}")
             
             # Mantener el prompt del sistema si está configurado
             if self.system_prompt:
@@ -612,7 +760,6 @@ class UniversalChatClient:
             
             print("=" * 60 + "\n")
             return True
-            
         except Exception as e:
             print(f"[ERROR] Failed to change model: {e}")
             import traceback

@@ -3,7 +3,7 @@ Local LLM Chat - Interfaz Universal para Modelos de Lenguaje Locales
 Soporta modelos GGUF (llama.cpp) y Transformers (Hugging Face) con adaptación automática
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 __author__ = "Edu Díaz (RGiskard7)"
 __license__ = "MIT"
 
@@ -19,7 +19,7 @@ from .model_config import (
     is_gguf_model,
     is_transformers_model,
 )
-from .config import Config, RAGConfig, LLMConfig
+from .config import Config, ModelConfig, LLMConfig, RAGConfig
 from .backends import GGUFBackend, TransformersBackend, TRANSFORMERS_AVAILABLE
 
 __all__ = [
@@ -34,8 +34,9 @@ __all__ = [
     "is_gguf_model",
     "is_transformers_model",
     "Config",
-    "RAGConfig",
+    "ModelConfig",
     "LLMConfig",
+    "RAGConfig",
     "GGUFBackend",
     "TransformersBackend",
     "TRANSFORMERS_AVAILABLE",

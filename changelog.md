@@ -4,6 +4,417 @@ Registro completo de cambios y mejoras del proyecto.
 
 ---
 
+## 📅 2025-11-04 — v2.0.2: Bugfixes críticos y refactoring de arquitectura
+
+**Archivos modificados:**
+- `src/local_llm_chat/backends/transformers_backend.py`
+- `src/local_llm_chat/client.py`
+- `src/local_llm_chat/__init__.py`
+- `pyproject.toml`
+
+**Resumen:**
+Arreglados bugs críticos identificados en revisión de código, refactorización de responsabilidades y fix de dependencia opcional `accelerate`.
+
+**Bugs críticos corregidos:**
+
+1. **Bug: `repeat_penalty` no soportado en TransformersBackend**
+   - **Problema**: `TransformersBackend.generate()` no aceptaba `repeat_penalty`, pero `client.infer()` lo pasaba
+   - **Impacto**: Parámetro ignorado silenciosamente en modelos Transformers
+   - **Fix**: Añadido parámetro `repeat_penalty` con mapeo a `repetition_penalty` de HuggingFace
+   - **Archivos**: `src/local_llm_chat/backends/transformers_backend.py` (líneas 249, 314)
+
+2. **Bug: Memory leak en `change_model()`**
+   - **Problema**: Al cambiar de modelo, el anterior no se descargaba de memoria
+   - **Impacto**: Consumo acumulativo de RAM/VRAM en cambios frecuentes
+   - **Fix**: Llamada explícita a `backend.unload_model()` antes de cargar nuevo modelo
+   - **Archivos**: `src/local_llm_chat/client.py` (líneas 614-620)
+
+**Mejoras importantes:**
+
+3. **Validación de parámetros en `infer()`**
+   - Añadidas validaciones para `prompt`, `max_tokens`, `temperature`, `top_p`, `repeat_penalty`, `top_k`
+   - Mensajes de error descriptivos con valores inválidos
+   - Previene errores en backends por parámetros fuera de rango
+   - **Archivos**: `src/local_llm_chat/client.py` (líneas 403-445)
+
+4. **Normalización de `device_map` en TransformersBackend**
+   - **Problema**: Mezcla de strings simples ("cuda", "mps") con `device_map="auto"` de HuggingFace
+   - **Fix**: Usar `device_map="auto"` de HF para balanceo inteligente cuando `device="auto"`
+   - **Fix adicional**: Fallback inteligente cuando `accelerate` no está instalado
+   - Si `accelerate` disponible: usa `device_map="auto"` (óptimo)
+   - Si no disponible: selecciona dispositivo directamente (cuda/mps/cpu)
+   - Mejora mensajes informativos de detección de hardware
+   - **Archivos**: `src/local_llm_chat/backends/transformers_backend.py` (líneas 184-219)
+
+**Refactoring de arquitectura:**
+
+5. **Separación de responsabilidades: `ConversationManager`**
+   - Nueva clase `ConversationManager` para gestión de historial y métricas
+   - Responsabilidad única: tracking de conversaciones
+   - `UniversalChatClient` delega gestión de historial a `ConversationManager`
+   - Mantiene API pública 100% compatible (sin breaking changes)
+   - Facilita testing y mantenimiento futuro
+   - **Archivos**: `src/local_llm_chat/client.py` (líneas 21-82, múltiples delegaciones)
+
+**Beneficios:**
+- ✅ Consistencia entre backends: GGUF y Transformers ahora aceptan los mismos parámetros
+- ✅ Sin memory leaks: modelos se descargan correctamente
+- ✅ Validación robusta: errores detectados temprano con mensajes claros
+- ✅ Mejor uso de GPU: device_map="auto" aprovecha balanceo de HuggingFace
+- ✅ Código más mantenible: responsabilidades claramente separadas
+- ✅ Sin breaking changes: API pública sin modificaciones
+
+**Documentación actualizada:**
+- README.md: Añadida nota sobre `accelerate` en instalación Transformers
+- README.md: Nueva sección de troubleshooting para error de `accelerate`
+- QUICKSTART.md: Explicación de qué incluye cada instalación
+- Clarificado que `accelerate` es opcional pero recomendado
+
+**Testing:**
+- Probados todos los backends: GGUF y Transformers
+- Verificados parámetros: repeat_penalty, top_k, temperature, etc.
+- Comprobada limpieza de memoria en cambio de modelos
+- Validadas todas las validaciones de parámetros
+- Verificado fallback sin `accelerate` funciona correctamente
+
+---
+
+## 📅 2025-01-26 — Feature: Comando /download mejorado con soporte para IDs de HuggingFace
+
+**Archivos modificados:**
+- `src/local_llm_chat/cli.py`
+- `src/local_llm_chat/model_config.py`
+- `src/local_llm_chat/utils.py`
+
+**Resumen:**
+Extendido el comando `/download` para aceptar tanto números (recomendaciones) como IDs directos de HuggingFace, con detección automática del backend.
+
+**Cambios realizados:**
+
+1. **Comando `/download` ahora acepta dos formatos**:
+   - Números (comportamiento existente): `/download 1`
+   - IDs de HuggingFace (nuevo): `/download meta-llama/Llama-3.1-8B-GGUF`
+
+2. **Detección automática de backend mejorada**:
+   - Arreglado `detect_backend_type()` para detectar "GGUF" sin punto
+   - Ahora reconoce correctamente repos como `bartowski/Llama-3.2-3B-Instruct-GGUF`
+   - Mantiene compatibilidad con paths locales `.gguf`
+
+3. **Soporte para ambos backends**:
+   - GGUF: descarga archivo `.gguf` del repo
+   - Transformers: carga directamente (auto-download)
+
+**Casos de uso:**
+```bash
+# Desde recomendaciones (existente)
+/download 1
+
+# Modelo GGUF específico (nuevo)
+/download bartowski/Llama-3.2-3B-Instruct-GGUF
+
+# Modelo Transformers específico (nuevo)
+/download microsoft/phi-2
+/download bigscience/bloom-560m
+```
+
+**Impacto:**
+- ✅ Más flexible: acceso a cualquier modelo de HuggingFace
+- ✅ Retrocompatible: números siguen funcionando igual
+- ✅ Sin duplicación de código: reutiliza lógica existente
+- ✅ UX mejorada: menos pasos para probar modelos específicos
+
+---
+
+## 📅 2025-01-26 — Refactor: Eliminado hardcoding subjetivo en recomendaciones
+
+**Archivos modificados:**
+- `src/local_llm_chat/model_config.py`
+
+**Resumen:**
+Eliminado hardcoding subjetivo en el sistema de recomendaciones para usar solo métricas objetivas de la API de HuggingFace.
+
+**Cambios realizados:**
+
+1. **Eliminado `priority_orgs` (hardcoding subjetivo)**:
+   - Antes: priorizaba manualmente organizaciones específicas (bigscience, meta-llama, etc.)
+   - Ahora: usa solo `downloads` (métrica objetiva de HuggingFace)
+   - Resultado: recomendaciones basadas en popularidad real, no preferencias subjetivas
+
+2. **Creada constante `FULL_PRECISION_SIZE_MULTIPLIER`**:
+   - Antes: `estimated_size = base_gb * 2` (hardcoded)
+   - Ahora: `estimated_size = base_gb * FULL_PRECISION_SIZE_MULTIPLIER`
+   - Mejor mantenibilidad y claridad del código
+
+3. **Simplificado algoritmo de ordenamiento**:
+   - Antes: `sort(key=lambda x: (not x['priority'], -x['downloads']))`
+   - Ahora: `sort(key=lambda x: -x['downloads'])`
+   - Más simple y transparente
+
+**Impacto:**
+- ✅ Sin hardcoding subjetivo
+- ✅ Recomendaciones basadas en datos reales (downloads)
+- ✅ Código más mantenible
+- ✅ Organizaciones nuevas/emergentes se incluyen automáticamente
+
+---
+
+## 📅 2025-01-26 — Feature: Sistema de recomendaciones para Transformers + detección MPS
+
+**Archivos modificados:**
+- `src/local_llm_chat/model_config.py`
+- `src/local_llm_chat/utils.py`
+- `src/local_llm_chat/cli.py`
+- `src/local_llm_chat/backends/transformers_backend.py`
+
+**Resumen:**
+Extendido el sistema de recomendaciones inteligentes para incluir modelos Transformers además de GGUF, con detección automática de hardware (incluyendo Metal/MPS en macOS).
+
+**Cambios realizados:**
+
+1. **Nueva función `get_transformers_recommendations()` en `model_config.py`**:
+   - Consulta la API de HuggingFace para modelos populares de Transformers
+   - Filtra basándose en hardware detectado (usa thresholds específicos ya que Transformers necesita más RAM)
+   - Prioriza organizaciones conocidas (bigscience, meta-llama, mistralai, etc.)
+   - Retorna top 10 modelos compatibles con el hardware del usuario
+
+2. **Thresholds específicos para Transformers**:
+   - < 8GB RAM: modelos tiny (500M-560M parámetros)
+   - 8-16GB RAM: modelos small (1B-1.5B parámetros)
+   - 16-32GB RAM: modelos medium (3B-7B parámetros)
+   - > 32GB RAM: modelos large (7B-8B parámetros)
+
+3. **Actualizado `show_available_models()` en `utils.py`**:
+   - Muestra dos secciones separadas: "GGUF MODELS" y "TRANSFORMERS MODELS"
+   - Numeración continua entre ambas secciones
+   - Indica características de cada backend (GGUF = rápido en CPU, Transformers = más modelos disponibles)
+   - Retorna lista combinada para el comando `/download`
+
+4. **CLI actualizada para manejar ambos backends**:
+   - Detecta automáticamente el tipo de backend de cada modelo recomendado
+   - GGUF: descarga archivo `.gguf` explícitamente (como antes)
+   - Transformers: carga directamente usando el nombre del modelo (descarga automática por HuggingFace)
+   - Muestra el backend en los mensajes de descarga/carga
+
+5. **Detección automática de Metal/MPS en TransformersBackend**:
+   - Prioridad de detección: CUDA > MPS > CPU
+   - Detecta Apple Silicon (Metal Performance Shaders) automáticamente
+   - Usa `torch.backends.mps.is_available()` para verificar MPS
+   - Selecciona dtype automáticamente según GPU disponible (float16 en GPU, float32 en CPU)
+   - Mensajes informativos sobre qué GPU se detectó
+
+**Ejemplo de uso:**
+```bash
+# CLI muestra ahora ambos tipos
+$ python main.py
+GGUF MODELS (Recommended - Fast on CPU)
+  1. bartowski/Meta-Llama-3.1-8B-Instruct-GGUF
+  2. ...
+
+TRANSFORMERS MODELS (More RAM, any HF model)
+  6. bigscience/bloom-560m
+  7. ...
+
+# Descargar GGUF (índice 1-5)
+> /download 1
+
+# Cargar Transformers (índice 6+)
+> /download 6
+[INFO] Backend: TRANSFORMERS
+[INFO] Loading Transformers model (auto-download from HuggingFace Hub)...
+[TRANSFORMERS] Detected Metal (MPS) - Apple Silicon
+```
+
+**Impacto:**
+- ✅ Paridad de experiencia entre GGUF y Transformers
+- ✅ Usuarios no necesitan conocer nombres exactos de modelos
+- ✅ Transformers ahora soporta Apple Silicon automáticamente
+- ✅ Thresholds ajustados según requisitos reales de memoria
+- ✅ Mismo flujo de trabajo para ambos backends
+
+---
+
+## 📅 2025-01-26 — Fix: Eliminadas dependencias CUDA inválidas en pyproject.toml
+
+**Archivos modificados:**
+- `pyproject.toml`
+
+**Resumen:**
+Eliminadas las dependencias opcionales `cuda` y `cuda118` que incluían `--index-url`, formato inválido según PEP 508 que causaba errores de parseo.
+
+**Problema identificado:**
+- Las dependencias opcionales `cuda` y `cuda118` (líneas 83-88) contenían `--index-url https://download.pytorch.org/whl/cu121`
+- PEP 508 no permite especificar URLs de índice directamente en especificaciones de dependencias
+- Esto causaba errores de parseo al instalar el paquete
+
+**Cambios realizados:**
+1. Eliminadas las dependencias opcionales `cuda` y `cuda118`
+2. Añadido comentario explicativo sobre instalación manual de PyTorch con CUDA
+3. `torch>=2.0.0` en `dependencies` principal sigue instalando PyTorch CPU por defecto
+
+**Nota:**
+PyTorch con CUDA debe instalarse manualmente:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+# o
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
+**Impacto:**
+- ✅ `pyproject.toml` ahora es válido según PEP 508
+- ✅ Eliminados errores de parseo durante instalación
+- ✅ Instalación manual de PyTorch CUDA documentada claramente
+
+---
+
+## 📅 2025-11-04 — Bugfix: top_k parameter en GGUFBackend
+
+**Archivos modificados:**
+- `src/local_llm_chat/backends/gguf_backend.py`
+
+**Resumen:**
+Corregido bug donde `GGUFBackend.generate()` no aceptaba el parámetro `top_k`, causando inconsistencia con otros backends y pérdida silenciosa del parámetro.
+
+**Problema identificado:**
+- `client.infer()` pasaba `top_k` explícitamente a todos los backends (línea 437)
+- `TransformersBackend.generate()` aceptaba `top_k: int = 50` correctamente
+- `GGUFBackend.generate()` **no** tenía `top_k` en su firma, solo `**kwargs`
+- El parámetro `top_k` se perdía silenciosamente y no se pasaba a `llm.create_chat_completion()`
+
+**Cambios realizados:**
+1. Añadido `top_k: int = 40` a la firma de `GGUFBackend.generate()`
+2. Actualizado docstring para documentar el parámetro
+3. Pasado `top_k` a `llm.create_chat_completion()`
+
+**Firma actualizada:**
+```python
+def generate(
+    self, 
+    messages: List[Dict[str, str]], 
+    max_tokens: int = 256,
+    temperature: float = 0.7,
+    top_p: float = 0.9,
+    repeat_penalty: float = 1.1,
+    top_k: int = 40,  # ✅ AÑADIDO
+    **kwargs
+) -> Dict[str, Any]:
+```
+
+**Impacto:**
+- ✅ Consistencia entre backends (GGUF y Transformers)
+- ✅ El parámetro `top_k` ahora se respeta correctamente
+- ✅ Mejor control sobre la generación de texto
+- ✅ Interfaz unificada para todos los backends
+
+---
+
+## 📅 2025-01-26 — Renombrado de simple.py a simple_rag_backend.py (Coherencia)
+
+**Archivos modificados:**
+- `src/local_llm_chat/rag/simple.py` → `simple_rag_backend.py` (renombrado)
+- `src/local_llm_chat/rag/__init__.py`
+- `src/local_llm_chat/rag/manager.py`
+- `README.md`
+- `PROJECT_STRUCTURE.md`
+- `CONFIG.md`
+
+**Resumen:**
+Renombrado `simple.py` a `simple_rag_backend.py` para mantener coherencia con la nomenclatura del proyecto. Todos los backends ahora siguen el mismo patrón de nombres: `*_backend.py`.
+
+**Motivación:**
+- **Coherencia interna**: `raganything_backend.py` tenía sufijo, pero `simple.py` no
+- **Coherencia con backends/**: `gguf_backend.py`, `transformers_backend.py` usan el mismo patrón
+- **Estándar de la industria**: Django, Keras, Celery usan `*_backend.py` para implementaciones intercambiables
+- **Claridad**: El nombre indica explícitamente que es un backend RAG
+
+**Cambios realizados:**
+1. Renombrado físico del archivo
+2. Actualizados imports en `rag/__init__.py` y `rag/manager.py`
+3. Actualizada documentación en README, PROJECT_STRUCTURE y CONFIG
+
+**Arquitectura resultante:**
+```
+src/local_llm_chat/
+├── backends/
+│   ├── gguf_backend.py          ✓ Coherente
+│   └── transformers_backend.py  ✓ Coherente
+└── rag/
+    ├── simple_rag_backend.py    ✓ Coherente (antes: simple.py)
+    └── raganything_backend.py   ✓ Coherente
+```
+
+**Beneficios:**
+- ✅ Nomenclatura consistente en todo el proyecto
+- ✅ Sigue estándares de la industria (Strategy/Backend pattern)
+- ✅ Más fácil de entender para nuevos desarrolladores
+- ✅ Documentación actualizada
+
+---
+
+## 📅 2025-01-26 — Fix Imports Condicionales RAG + Mejora requirements-rag.txt
+
+**Archivos modificados:**
+- `src/local_llm_chat/rag/__init__.py`
+- `requirements-rag.txt`
+- `pyproject.toml`
+
+**Resumen:**
+Implementados imports condicionales para los backends RAG, siguiendo el mismo patrón profesional que `backends/__init__.py`. Esto previene errores de importación cuando las dependencias RAG opcionales no están instaladas.
+
+**Cambios realizados:**
+
+1. **Imports condicionales en `rag/__init__.py`**:
+   - `SimpleRAG` y `RAGAnythingBackend` ahora se importan con try/except
+   - Evita errores cuando chromadb, sentence-transformers o raganything no están instalados
+   - Mismo patrón que el módulo `backends`
+
+2. **Reorganización de `requirements-rag.txt`**:
+   - Secciones claras: SimpleRAG (ligero) vs RAG-Anything (pesado)
+   - Comentarios profesionales con instrucciones de instalación
+   - Facilita instalar solo SimpleRAG sin los conflictos de magic-pdf
+
+3. **Actualización de `pyproject.toml`**:
+   - `pypdf` actualizado de 3.0.0 a 6.0.0 (consistencia)
+   - Añadidos `future>=1.0.0` y `configparser>=5.0.0` a `rag-full`
+   - Mejora la compatibilidad con Python 3.11/3.12
+
+**Beneficios:**
+- ✅ El proyecto funciona sin errores aunque RAG no esté instalado
+- ✅ Instalación simple de SimpleRAG sin conflictos de dependencias
+- ✅ Documentación clara sobre qué instalar según las necesidades
+- ✅ Patrón consistente con el resto del proyecto (backends)
+
+**Instrucciones de instalación:**
+```bash
+# Solo SimpleRAG (recomendado)
+pip install chromadb sentence-transformers pypdf
+
+# RAG completo (opcional, pesado)
+pip install -r requirements-rag.txt
+```
+
+---
+
+## 📅 2025-01-26 — Resolución de Conflictos de Merge
+
+**Archivos modificados:**
+- `QUICKSTART.md`
+- `README.md`
+- `requirements.txt`
+- `src/local_llm_chat/__init__.py`
+- `src/local_llm_chat/client.py`
+
+**Resumen:**
+Resueltos todos los conflictos de merge entre las ramas `develop` y `main`. Se mantuvo la versión 2.0 del proyecto con soporte completo para múltiples backends (GGUF + Transformers), preservando todas las funcionalidades avanzadas y la documentación actualizada.
+
+**Archivos resueltos:**
+- ✅ QUICKSTART.md - Mantenida versión v2.0 con documentación multi-backend
+- ✅ README.md - Preservada documentación completa v2.0
+- ✅ requirements.txt - Mantenidas dependencias con Transformers opcionales
+- ✅ src/local_llm_chat/__init__.py - Preservadas exportaciones de backends
+- ✅ src/local_llm_chat/client.py - Mantenida implementación multi-backend
+
+---
+
 ## 📅 2025-11-03 — Fix Compatibilidad Python 3.13 + Actualización Docs v2.0.1
 
 **Archivos modificados:**
