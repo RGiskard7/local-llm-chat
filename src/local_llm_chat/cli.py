@@ -6,7 +6,7 @@ Maneja toda la interacción del usuario y procesamiento de comandos
 import os
 import json
 import asyncio
-from huggingface_hub import hf_hub_download, HfApi
+from huggingface_hub import hf_hub_download, HfApi, snapshot_download
 
 from .client import UniversalChatClient
 from .utils import list_local_models, show_available_models, show_help
@@ -365,14 +365,30 @@ def run_cli():
                         print(f"[INFO] Use: /changemodel {os.path.relpath(downloaded_path, '.')}")
                     
                     elif backend_type == 'transformers':
-                        # Transformers: cargar directamente (descarga automática)
-                        print(f"[INFO] Loading Transformers model (auto-download from HuggingFace Hub)...")
-                        print(f"[INFO] Switching to new model...")
+                        # Transformers: descargar a ./models/ y cargar desde ahí
+                        print(f"[INFO] Downloading Transformers model to ./models/...")
+                        print(f"[INFO] This may take several minutes...")
                         
-                        # Crear nuevo cliente con el modelo Transformers
+                        # Normalizar nombre para carpeta
+                        model_folder = repo_id.replace('/', '_')
+                        local_model_path = f"./models/{model_folder}"
+                        
+                        # Descargar modelo completo a ./models/
+                        try:
+                            downloaded_path = snapshot_download(
+                                repo_id=repo_id,
+                                local_dir=local_model_path,
+                            )
+                            print(f"[SUCCESS] Model downloaded to: {downloaded_path}")
+                        except Exception as download_error:
+                            print(f"[ERROR] Failed to download model: {download_error}")
+                            raise
+                        
+                        # Cargar desde ruta local
+                        print(f"[INFO] Loading model from local path...")
                         client = UniversalChatClient(
                             backend="transformers",
-                            model_name_or_path=repo_id,
+                            model_name_or_path=downloaded_path,  # Ruta local, no repo_id
                             device="auto",
                             verbose=config.model.verbose,
                             llm_config=config.llm
@@ -380,6 +396,7 @@ def run_cli():
                         
                         print(f"[SUCCESS] Model loaded successfully!")
                         print(f"[INFO] You can now chat with {repo_id}")
+                        print(f"[INFO] Model location: {downloaded_path}")
 
                 except Exception as e:
                     print(f"[ERROR] Download/load failed: {e}")

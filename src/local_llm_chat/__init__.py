@@ -3,7 +3,7 @@ Local LLM Chat - Interfaz Universal para Modelos de Lenguaje Locales
 Soporta modelos GGUF (llama.cpp) y Transformers (Hugging Face) con adaptación automática
 """
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 __author__ = "Edu Díaz (RGiskard7)"
 __license__ = "MIT"
 

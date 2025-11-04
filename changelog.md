@@ -4,6 +4,47 @@ Registro completo de cambios y mejoras del proyecto.
 
 ---
 
+## 📅 2025-11-04 — v2.0.3: Modelos Transformers en ./models/ por consistencia
+
+**Archivos modificados:**
+- `src/local_llm_chat/cli.py`
+
+**Resumen:**
+Los modelos Transformers ahora se descargan en `./models/` en lugar del caché de HuggingFace, manteniendo consistencia con los modelos GGUF.
+
+**Cambio principal:**
+
+**Antes:**
+- GGUF: se descargaba en `./models/` ✓
+- Transformers: se descargaba en `~/.cache/huggingface/` ✗
+
+**Ahora:**
+- GGUF: se descarga en `./models/` ✓
+- Transformers: se descarga en `./models/` ✓
+
+**Implementación:**
+1. Uso de `snapshot_download()` para descargar modelos Transformers completos
+2. Descarga en `./models/{org_model}/` con nombre normalizado
+3. Cliente carga desde ruta local (no desde repo_id)
+4. No usa caché de HuggingFace → sin duplicidades
+
+**Beneficios:**
+- ✅ Consistencia: ambos backends usan `./models/`
+- ✅ Organización: todos los modelos en un solo lugar
+- ✅ Portabilidad: fácil copiar/mover el directorio `./models/`
+- ✅ Sin duplicidades: no se almacena en caché de HF
+- ✅ Transparente: el usuario solo ejecuta `/download <num|id>`
+
+**UX:**
+```bash
+> /download 12
+[INFO] Downloading Transformers model to ./models/...
+[SUCCESS] Model downloaded to: ./models/Qwen_Qwen2-0.5B
+[SUCCESS] Model loaded successfully!
+```
+
+---
+
 ## 📅 2025-11-04 — v2.0.2: Bugfixes críticos y refactoring de arquitectura
 
 **Archivos modificados:**
@@ -79,7 +120,7 @@ Arreglados bugs críticos identificados en revisión de código, refactorizació
 
 ---
 
-## 📅 2025-01-26 — Feature: Comando /download mejorado con soporte para IDs de HuggingFace
+## 📅 2025-11-04 — Feature: Comando /download mejorado con soporte para IDs de HuggingFace
 
 **Archivos modificados:**
 - `src/local_llm_chat/cli.py`
@@ -125,7 +166,7 @@ Extendido el comando `/download` para aceptar tanto números (recomendaciones) c
 
 ---
 
-## 📅 2025-01-26 — Refactor: Eliminado hardcoding subjetivo en recomendaciones
+## 📅 2025-11-04 — Refactor: Eliminado hardcoding subjetivo en recomendaciones
 
 **Archivos modificados:**
 - `src/local_llm_chat/model_config.py`
@@ -158,7 +199,7 @@ Eliminado hardcoding subjetivo en el sistema de recomendaciones para usar solo m
 
 ---
 
-## 📅 2025-01-26 — Feature: Sistema de recomendaciones para Transformers + detección MPS
+## 📅 2025-11-04 — Feature: Sistema de recomendaciones para Transformers + detección MPS
 
 **Archivos modificados:**
 - `src/local_llm_chat/model_config.py`
@@ -233,7 +274,7 @@ TRANSFORMERS MODELS (More RAM, any HF model)
 
 ---
 
-## 📅 2025-01-26 — Fix: Eliminadas dependencias CUDA inválidas en pyproject.toml
+## 📅 2025-11-04 — Fix: Eliminadas dependencias CUDA inválidas en pyproject.toml
 
 **Archivos modificados:**
 - `pyproject.toml`
@@ -307,7 +348,7 @@ def generate(
 
 ---
 
-## 📅 2025-01-26 — Renombrado de simple.py a simple_rag_backend.py (Coherencia)
+## 📅 2025-11-03 — Renombrado de simple.py a simple_rag_backend.py (Coherencia)
 
 **Archivos modificados:**
 - `src/local_llm_chat/rag/simple.py` → `simple_rag_backend.py` (renombrado)
@@ -350,7 +391,7 @@ src/local_llm_chat/
 
 ---
 
-## 📅 2025-01-26 — Fix Imports Condicionales RAG + Mejora requirements-rag.txt
+## 📅 2025-11-03 — Fix Imports Condicionales RAG + Mejora requirements-rag.txt
 
 **Archivos modificados:**
 - `src/local_llm_chat/rag/__init__.py`
@@ -394,7 +435,7 @@ pip install -r requirements-rag.txt
 
 ---
 
-## 📅 2025-01-26 — Resolución de Conflictos de Merge
+## 📅 2025-11-03 — Resolución de Conflictos de Merge
 
 **Archivos modificados:**
 - `QUICKSTART.md`
