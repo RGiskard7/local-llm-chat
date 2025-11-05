@@ -8,24 +8,58 @@ from .model_config import (
     get_smart_recommendations,
     get_transformers_recommendations,
     estimate_model_size,
-    POPULAR_MODELS
 )
 
 def list_local_models():
-    """Lista todos los modelos GGUF en el directorio ./models."""
+    """
+    Lista todos los modelos locales (GGUF y Transformers) en ./models.
+    
+    Returns:
+        Lista de diccionarios con información de cada modelo:
+        - 'path': ruta relativa al modelo
+        - 'type': 'gguf' o 'transformers'
+        - 'name': nombre del modelo
+    """
     models_dir = "./models"
     if not os.path.exists(models_dir):
         return []
 
-    gguf_files = []
+    models = []
+    
+    # Buscar modelos GGUF (archivos .gguf)
     for root, dirs, files in os.walk(models_dir):
         for file in files:
             if file.endswith('.gguf'):
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, ".")
-                gguf_files.append(rel_path)
-
-    return sorted(gguf_files)
+                models.append({
+                    'path': rel_path,
+                    'type': 'gguf',
+                    'name': os.path.basename(file)
+                })
+    
+    # Buscar modelos Transformers (carpetas con config.json y model.safetensors/model.bin)
+    for root, dirs, files in os.walk(models_dir):
+        # Solo considerar carpetas que no sean la raíz
+        if root == models_dir:
+            continue
+            
+        # Verificar si es un modelo Transformers
+        has_config = 'config.json' in files
+        has_model = any(f.startswith('model.') and (f.endswith('.safetensors') or f.endswith('.bin')) for f in files)
+        
+        if has_config and has_model:
+            # Es una carpeta de modelo Transformers
+            rel_path = os.path.relpath(root, ".")
+            models.append({
+                'path': rel_path,
+                'type': 'transformers',
+                'name': os.path.basename(root)
+            })
+    
+    # Ordenar por nombre
+    models.sort(key=lambda x: x['name'])
+    return models
 
 def show_available_models():
     """Muestra los modelos locales y recomendaciones inteligentes para GGUF y Transformers."""
@@ -46,11 +80,20 @@ def show_available_models():
     local = list_local_models()
     if local:
         print("\nLOCAL MODELS:")
-        for i, model in enumerate(local, 1):
-            model_name = os.path.basename(model)
-            size = estimate_model_size(model_name)
-            print(f"  {i}. {model_name} (~{size}GB)")
-            print(f"     Use: /changemodel {model}")
+        for i, model_info in enumerate(local, 1):
+            model_name = model_info['name']
+            model_type = model_info['type'].upper()
+            model_path = model_info['path']
+            
+            # Estimar tamaño
+            if model_info['type'] == 'gguf':
+                size = estimate_model_size(model_name)
+            else:
+                # Para Transformers, estimar desde el nombre o usar tamaño por defecto
+                size = estimate_model_size(model_name)
+            
+            print(f"  {i}. {model_name} (~{size}GB) [{model_type}]")
+            print(f"     Use: /changemodel {model_path}")
     else:
         print("\nLOCAL MODELS: None found")
 

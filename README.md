@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GGUF](https://img.shields.io/badge/format-GGUF-green.svg)](https://github.com/ggerganov/ggml)
 [![Transformers](https://img.shields.io/badge/backend-transformers-orange.svg)](https://huggingface.co/docs/transformers)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/RGiskard7/local-llm-chat)
+[![Version](https://img.shields.io/badge/version-2.0.4-blue.svg)](https://github.com/RGiskard7/local-llm-chat)
 
 Una interfaz universal para ejecutar modelos de lenguaje localmente con **múltiples backends intercambiables**. Soporta **modelos GGUF** (vía llama.cpp) y **Transformers** (Hugging Face). Diseñado con adaptación automática de system prompt, detección inteligente de modelos y arquitectura modular.
 
@@ -20,7 +20,8 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente con **múlti
 - **Soporte Universal**: GGUF y Transformers con cualquier arquitectura
 - **Detección Automática**: Reconoce tipo de modelo y backend automáticamente
 - **System Prompts Inteligentes**: Adaptación automática según capacidades del modelo
-- **Consciente del Hardware**: Recomendaciones según RAM/VRAM disponible
+- **Consciente del Hardware**: Recomendaciones desde API HuggingFace según RAM/VRAM disponible
+- **Descarga Flexible**: Descarga por número recomendado o ID de HuggingFace directamente
 - **RAG (Retrieval-Augmented Generation)**: Compatible con ambos backends
   - SimpleRAG: ChromaDB, rápido, optimizado para CPU
   - RAG-Anything: Knowledge graph, complejo, para GPU
@@ -31,6 +32,7 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente con **múlti
 - **Cambio Dinámico**: Cambia modelos y backends durante la sesión
 - **Aceleración GPU**: CUDA (NVIDIA) y Metal (Apple Silicon)
 - **Cuantización**: Soporte 8-bit/4-bit para Transformers (opcional)
+- **Sin Hardcodeo**: Todo viene de la API de HuggingFace
 
 ## Tabla de Contenidos
 
@@ -48,7 +50,7 @@ Una interfaz universal para ejecutar modelos de lenguaje localmente con **múlti
 
 ## Requisitos
 
-- **Python 3.8 - 3.12** (Core + GGUF + Transformers)
+- **Python 3.8 - 3.13** (Core + GGUF + Transformers)
 - **Python 3.11 - 3.12** (RAG - incompatible con 3.13)
 - 4GB RAM mínimo (8GB+ recomendado)
 - 10GB espacio en disco para modelos
@@ -173,21 +175,35 @@ python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 python main.py
 ```
 
-La aplicación mostrará recomendaciones inteligentes basadas en tu hardware:
+La aplicación mostrará recomendaciones inteligentes basadas en tu hardware (GGUF y Transformers):
 
 ```
-RECOMMENDED MODELS (based on your hardware):
+AVAILABLE MODELS
+============================================================
+GGUF MODELS (Recommended - Fast on CPU)
+============================================================
   1. bartowski/Meta-Llama-3.1-8B-Instruct-GGUF
      Size: ~9.0GB | Type: llama-3
      Downloads: 2,547,891
      Use: /download 1
+
+TRANSFORMERS MODELS (More RAM, any HF model)
+============================================================
+  11. Qwen/Qwen2.5-VL-3B-Instruct
+     Size: ~6.0GB | Type: qwen
+     Downloads: 7,870,693
+     Use: /download 11
 ```
 
 ### 2. Descargar y Chatear
 
 ```bash
-# En el prompt, descargar modelo recomendado
+# Opción A: Descargar modelo recomendado por número
 > /download 1
+
+# Opción B: Descargar modelo directamente por ID de HuggingFace
+> /download meta-llama/Llama-3.1-8B-Instruct-GGUF
+> /download bigscience/bloom-560m
 
 # Esperar descarga
 [DOWNLOAD] Downloading model...
@@ -324,8 +340,8 @@ client.change_model(
 
 | Comando | Descripción |
 |---------|-------------|
-| `/models` | Listar modelos disponibles y recomendaciones |
-| `/download <num>` | Descargar modelo recomendado por número |
+| `/models` | Listar modelos locales y recomendaciones (GGUF y Transformers) |
+| `/download <num|id>` | Descargar modelo recomendado por número o ID de HuggingFace directamente |
 | `/changemodel <path>` | Cambiar a modelo diferente |
 
 ### System Prompts
@@ -575,7 +591,9 @@ local-llm-chat/
 │       ├── raganything_backend.py  # RAG-Anything
 │       └── manager.py        # RAGManager
 ├── tests/                    # Suite de pruebas
-├── models/                   # Modelos GGUF (gitignored)
+├── models/                   # Modelos descargados (GGUF y Transformers) (gitignored)
+│   ├── *.gguf                # Modelos GGUF (archivos)
+│   └── */                    # Modelos Transformers (carpetas con config.json, model.safetensors)
 ├── chat_logs/                # Registros de sesiones (gitignored)
 ├── simple_rag_data/          # Datos SimpleRAG (gitignored)
 ├── rag_data/                 # Datos RAG-Anything (gitignored)
@@ -692,10 +710,11 @@ Las conversaciones se guardan automáticamente en `./chat_logs/` con formato JSO
    python -c "from local_llm_chat import detect_model_type; print(detect_model_type('modelo.gguf'))"
    ```
 
-3. Descargar modelo compatible:
+3. Descargar modelo compatible usando `/download`:
    ```bash
    python main.py
    # Usar /models para ver recomendaciones
+   # Usar /download <num> o /download <id> para descargar
    ```
 
 ### Error: Sin Memoria
@@ -708,12 +727,17 @@ Las conversaciones se guardan automáticamente en `./chat_logs/` con formato JSO
 
 1. Ver modelos compatibles con tu hardware:
    ```bash
-   > /models
+   > /models  # Muestra GGUF y Transformers recomendados
    ```
 
-2. Descargar cuantización más pequeña (Q4 en lugar de Q8)
+2. Descargar cuantización más pequeña (Q4 en lugar de Q8) o modelo más pequeño
 
-3. Reducir contexto:
+3. Para Transformers: Usar cuantización 8-bit o descargar modelo directamente:
+   ```bash
+   > /download bigscience/bloom-560m  # Modelo pequeño
+   ```
+
+4. Reducir contexto:
    ```python
    client = UniversalChatClient(
        model_path="...",
@@ -870,22 +894,23 @@ in the Software without restriction...
 
 ## Roadmap
 
-### Versión 1.1
+### Etapa 1
 
 - [x] Soporte RAG (Retrieval-Augmented Generation)
 - [x] Sistema de configuración centralizada
 - [x] Persistencia de documentos RAG entre sesiones
+- [x] Soporte de Transformers
 - [ ] Interfaz web con Gradio
 - [ ] Exportar conversaciones a Markdown/PDF
 
-### Versión 1.2
+### Etapa 2
 
 - [ ] API REST con FastAPI
 - [ ] Sistema de plugins
 - [ ] Integración con Langchain
 - [ ] Soporte para conversaciones multi-modelo
 
-### Versión 2.0
+### Etapa 3
 
 - [ ] Fine-tuning de modelos locales
 - [ ] Suite de benchmarking integrada
@@ -898,7 +923,7 @@ in the Software without restriction...
 
 ## Estado del Proyecto
 
-- Versión actual: 2.0.0 🎉
+- Versión actual: 2.0.4
 - Estado: Estable
 - Python: 3.8+
 - Backends: GGUF + Transformers
@@ -915,11 +940,16 @@ in the Software without restriction...
 - ✅ Cambio dinámico de backend durante la sesión
 - ✅ Detección automática de tipo de backend
 - ✅ Soporte cuantización 8-bit/4-bit para Transformers
+- ✅ Recomendaciones inteligentes desde API HuggingFace (sin hardcodeo)
+- ✅ Descarga directa por ID de HuggingFace (`/download <id>`)
+- ✅ Todos los modelos descargados en `./models/` (consistencia GGUF y Transformers)
 
 ### 📚 Documentación
-- ✅ [BACKENDS_ARCHITECTURE.md](doc/BACKENDS_ARCHITECTURE.md) - Guía completa de backends
+- ✅ [BACKENDS_ARCHITECTURE.md](doc/03.11.25/BACKENDS_ARCHITECTURE.md) - Guía completa de backends
 - ✅ README actualizado con ejemplos de uso
 - ✅ Instalación modular con dependencias opcionales
+- ✅ Configuración centralizada y documentada (`CONFIG.md`)
+- ✅ Sin código legacy ni hardcodeo subjetivo
 
 -----
 

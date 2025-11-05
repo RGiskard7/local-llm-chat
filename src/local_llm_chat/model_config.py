@@ -92,6 +92,15 @@ QUANTIZATION_FACTORS = {
 # Un modelo de 7B parámetros en float32/float16 ocupa ~2x el tamaño base
 FULL_PRECISION_SIZE_MULTIPLIER = 2.0
 
+# Preferencias de cuantización GGUF (orden de preferencia)
+GGUF_QUANTIZATION_PREFERENCES = ['q8_0', 'q8', 'q6', 'q5', 'q4']
+
+# Conversión de bytes a GB
+BYTES_TO_GB = 1024 ** 3
+
+# Máximo número de shards a considerar para modelos Transformers (algunos modelos grandes tienen múltiples archivos)
+MAX_TRANSFORMERS_SHARDS = 5
+
 
 def detect_model_type(model_name_or_path: str) -> str:
     """
@@ -182,64 +191,6 @@ def get_system_prompt_strategy(model_type: str) -> str:
     return "native" if supports_native_system(model_type) else "workaround"
 
 
-# Configuraciones de modelos populares para descarga rápida
-POPULAR_MODELS = {
-    "gemma-12b": {
-        "repo_id": "unsloth/gemma-3-12b-it-GGUF",
-        "filename": "gemma-3-12b-it-UD-Q8_K_XL.gguf",
-        "type": "gemma",
-        "description": "Gemma 3 12B - Modelo conversacional de Google"
-    },
-    "llama-3-8b": {
-        "repo_id": "QuantFactory/Meta-Llama-3-8B-Instruct-GGUF",
-        "filename": "Meta-Llama-3-8B-Instruct.Q8_0.gguf",
-        "type": "llama-3",
-        "description": "Llama 3 8B Instruct - Modelo de Meta"
-    },
-    "mistral-7b": {
-        "repo_id": "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
-        "filename": "mistral-7b-instruct-v0.2.Q8_0.gguf",
-        "type": "mistral",
-        "description": "Mistral 7B Instruct - Modelo de Mistral AI"
-    },
-    "phi-3-mini": {
-        "repo_id": "microsoft/Phi-3-mini-4k-instruct-gguf",
-        "filename": "Phi-3-mini-4k-instruct-q4.gguf",
-        "type": "phi",
-        "description": "Phi-3 Mini - Modelo compacto de Microsoft"
-    },
-    "openchat-3.5": {
-        "repo_id": "TheBloke/openchat-3.5-1210-GGUF",
-        "filename": "openchat-3.5-1210.Q8_0.gguf",
-        "type": "openchat",
-        "description": "OpenChat 3.5 - Modelo conversacional optimizado"
-    }
-}
-
-
-def get_model_info(model_key: str) -> dict:
-    """
-    Obtiene información de un modelo popular.
-    
-    Args:
-        model_key: Clave del modelo en POPULAR_MODELS
-        
-    Returns:
-        Diccionario con información del modelo
-    """
-    return POPULAR_MODELS.get(model_key)
-
-
-def list_popular_models() -> list:
-    """
-    Lista todos los modelos populares disponibles.
-    
-    Returns:
-        Lista de tuplas (key, description)
-    """
-    return [(key, info["description"]) for key, info in POPULAR_MODELS.items()]
-
-
 def get_hardware_info() -> dict:
     """
     Detecta el hardware disponible del sistema en tiempo real.
@@ -307,10 +258,76 @@ def estimate_model_size(model_name: str) -> float:
     return base_size * 0.75
 
 
+def _select_preferred_gguf_file(gguf_files: list) -> str:
+    """
+    Selecciona el archivo GGUF preferido según orden de calidad.
+    
+    Args:
+        gguf_files: Lista de nombres de archivos GGUF
+        
+    Returns:
+        Nombre del archivo preferido, o el primero si no hay coincidencias
+    """
+    if not gguf_files:
+        return None
+    
+    # Buscar según preferencias de cuantización
+    for preference in GGUF_QUANTIZATION_PREFERENCES:
+        for f in gguf_files:
+            if preference in f.lower():
+                return f
+    
+    # Si no hay coincidencias, usar el primero
+    return gguf_files[0]
+
+
+def _get_gguf_file_size(api, repo_id: str) -> float:
+    """
+    Obtiene el tamaño REAL del archivo GGUF que se descargará.
+    
+    Args:
+        api: Instancia de HfApi
+        repo_id: ID del repositorio
+        
+    Returns:
+        Tamaño en GB del archivo GGUF que se descargará, o 0 si no se puede determinar
+    """
+    try:
+        # Listar archivos del repo
+        files = api.list_repo_files(repo_id, repo_type="model")
+        gguf_files = [f for f in files if f.endswith('.gguf')]
+        
+        if not gguf_files:
+            return 0
+        
+        # Elegir el archivo preferido usando función reutilizable
+        preferred_file = _select_preferred_gguf_file(gguf_files)
+        if not preferred_file:
+            return estimate_model_size(repo_id)
+        
+        # Intentar obtener tamaño del archivo usando repo_file_info (si existe)
+        try:
+            if hasattr(api, 'repo_file_info'):
+                file_info = api.repo_file_info(repo_id, preferred_file, repo_type="model")
+                if file_info and hasattr(file_info, 'size') and file_info.size:
+                    return file_info.size / BYTES_TO_GB
+        except (AttributeError, Exception):
+            # Si repo_file_info no existe o falla, continuar con fallback
+            pass
+        
+        # Fallback: estimar desde el nombre del archivo (más preciso que desde repo)
+        return estimate_model_size(preferred_file)
+        
+    except Exception:
+        # Si falla, usar estimación desde nombre del repo
+        return estimate_model_size(repo_id)
+
+
 def get_smart_recommendations(timeout: int = 10) -> list:
     """
     Consulta REAL la API de Hugging Face para obtener modelos GGUF populares.
     Filtra basándose en hardware REAL detectado del sistema.
+    Obtiene el tamaño REAL del archivo que se descargará.
     
     Args:
         timeout: Timeout para la consulta API (no usado actualmente)
@@ -360,17 +377,21 @@ def get_smart_recommendations(timeout: int = 10) -> list:
             if base_name in seen_base_names:
                 continue
             
-            # Estimar tamaño
-            estimated_size = estimate_model_size(model_id)
+            # Obtener tamaño REAL del archivo que se descargará
+            real_size = _get_gguf_file_size(api, model_id)
             
-            if estimated_size <= max_size:
+            # Si no se pudo obtener tamaño real, usar estimación como fallback
+            if real_size == 0:
+                real_size = estimate_model_size(model_id)
+            
+            if real_size <= max_size:
                 # Detectar tipo de modelo
                 model_type = detect_model_type(model_id)
                 
                 recommendations.append({
                     'repo_id': model_id,
                     'model_type': model_type,
-                    'estimated_size_gb': round(estimated_size, 1),
+                    'estimated_size_gb': round(real_size, 1),
                     'downloads': getattr(model, 'downloads', 0),
                     'fits_hardware': True,
                     'backend': 'gguf'
@@ -385,8 +406,57 @@ def get_smart_recommendations(timeout: int = 10) -> list:
         return recommendations
         
     except Exception as e:
-        # Fallback: retornar lista vacía para usar hardcoded
+        # Fallback: retornar lista vacía si falla la consulta API
         return []
+
+
+def _get_transformers_model_size(api, repo_id: str) -> float:
+    """
+    Obtiene el tamaño REAL aproximado del modelo Transformers.
+    Suma el tamaño de los archivos principales (model.safetensors o model.bin).
+    
+    Args:
+        api: Instancia de HfApi
+        repo_id: ID del repositorio
+        
+    Returns:
+        Tamaño aproximado en GB, o 0 si no se puede determinar
+    """
+    try:
+        # Listar archivos del repo
+        files = api.list_repo_files(repo_id, repo_type="model")
+        
+        # Buscar archivos del modelo principal
+        model_files = [f for f in files if f.startswith('model.') and (f.endswith('.safetensors') or f.endswith('.bin'))]
+        
+        if not model_files:
+            # Fallback: estimar desde nombre
+            return estimate_model_size(repo_id) * FULL_PRECISION_SIZE_MULTIPLIER
+        
+        # Obtener tamaño de los archivos del modelo
+        total_size_bytes = 0
+        file_paths = model_files[:MAX_TRANSFORMERS_SHARDS]
+        
+        # Intentar obtener tamaño usando repo_file_info (si existe)
+        if hasattr(api, 'repo_file_info'):
+            for file_path in file_paths:
+                try:
+                    file_info = api.repo_file_info(repo_id, file_path, repo_type="model")
+                    if file_info and hasattr(file_info, 'size') and file_info.size:
+                        total_size_bytes += file_info.size
+                except Exception:
+                    # Si falla, continuar con siguiente archivo
+                    continue
+        
+        if total_size_bytes > 0:
+            return total_size_bytes / BYTES_TO_GB
+        
+        # Fallback: estimar desde nombre del modelo
+        return estimate_model_size(repo_id) * FULL_PRECISION_SIZE_MULTIPLIER
+        
+    except Exception:
+        # Si falla completamente, usar estimación desde nombre
+        return estimate_model_size(repo_id) * FULL_PRECISION_SIZE_MULTIPLIER
 
 
 def get_transformers_recommendations(timeout: int = 10) -> list:
@@ -447,14 +517,21 @@ def get_transformers_recommendations(timeout: int = 10) -> list:
             if base_name in seen_base_names:
                 continue
             
-            # Estimar tamaño (modelos Transformers sin cuantización)
-            estimated_size = 0
-            for patterns, base_gb in MODEL_SIZE_PATTERNS:
-                if any(p in model_lower for p in patterns):
-                    estimated_size = base_gb * FULL_PRECISION_SIZE_MULTIPLIER
-                    break
+            # Obtener tamaño REAL del modelo (o estimar desde nombre)
+            estimated_size = _get_transformers_model_size(api, model_id)
             
-            if estimated_size == 0 or estimated_size > max_size:
+            # Si no se pudo obtener tamaño real, usar estimación desde nombre
+            if estimated_size == 0:
+                for patterns, base_gb in MODEL_SIZE_PATTERNS:
+                    if any(p in model_lower for p in patterns):
+                        estimated_size = base_gb * FULL_PRECISION_SIZE_MULTIPLIER
+                        break
+            
+            # Si aún no se tiene tamaño, usar estimación conservadora
+            if estimated_size == 0:
+                estimated_size = 7.0 * FULL_PRECISION_SIZE_MULTIPLIER  # Default conservador
+            
+            if estimated_size > max_size:
                 continue
             
             # Detectar tipo de modelo
@@ -495,17 +572,6 @@ def validate_model_config() -> bool:
     """
     issues = []
     
-    # Verificar que todos los modelos populares tienen configuración completa
-    for key, info in POPULAR_MODELS.items():
-        required_fields = ["type", "repo_id", "filename", "description"]
-        for field in required_fields:
-            if field not in info:
-                issues.append(f"Model '{key}' missing required field '{field}'")
-        
-        # Verificar que el tipo tiene chat format
-        if "type" in info and info["type"] not in CHAT_FORMAT_MAP:
-            issues.append(f"Model '{key}' type '{info['type']}' not in CHAT_FORMAT_MAP")
-    
     # Verificar que los tipos principales están clasificados
     all_supported_types = set(MODELS_WITH_NATIVE_SYSTEM_SUPPORT.keys()) | set(MODELS_WITHOUT_SYSTEM_SUPPORT.keys())
     for model_type in all_supported_types:
@@ -526,7 +592,7 @@ def detect_backend_type(model_identifier: str) -> str:
     Detecta el tipo de backend basándose en el identificador del modelo
     
     Args:
-        model_identifier: Path local, nombre HF, o model_key
+        model_identifier: Path local o nombre HF (repo_id)
         
     Returns:
         "gguf" o "transformers"
@@ -556,7 +622,7 @@ def detect_backend_type(model_identifier: str) -> str:
             if has_config or has_pytorch:
                 return "transformers"
     
-    # Default: asumir GGUF para compatibilidad con código legacy
+    # Default: asumir GGUF para compatibilidad con código existente
     return "gguf"
 
 

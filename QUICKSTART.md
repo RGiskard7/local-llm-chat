@@ -99,14 +99,18 @@ python main.py
 # Luego: /changemodel --backend transformers --model "microsoft/DialoGPT-small"
 ```
 
-### Opción C: Descargar un modelo GGUF recomendado
+### Opción C: Descargar un modelo recomendado
 
 ```bash
 # Ejecutar la aplicación
 python main.py
 
-# La aplicación mostrará recomendaciones basadas en tu RAM
-# Seleccionar un número para descargar
+# La aplicación mostrará recomendaciones basadas en tu RAM (GGUF y Transformers)
+# Opción 1: Seleccionar un número para descargar
+# Opción 2: Descargar directamente por ID de HuggingFace
+> /download meta-llama/Llama-3.1-8B-Instruct-GGUF
+> /download bigscience/bloom-560m
+
 # Esperar la descarga (puede tomar varios minutos)
 # Comenzar a chatear
 ```
@@ -138,8 +142,10 @@ python main.py
 ### Gestión de Modelos
 
 ```bash
-/models                           # Listar modelos GGUF disponibles
-/download 1                       # Descargar modelo GGUF recomendado
+/models                           # Listar modelos locales y recomendaciones (GGUF y Transformers)
+/download 1                       # Descargar modelo recomendado por número
+/download meta-llama/Llama-3.1-8B-Instruct-GGUF  # Descargar por ID de HuggingFace
+/download bigscience/bloom-560m   # Descargar modelo Transformers directamente
 /changemodel models/model.gguf    # Cambiar a GGUF local
 
 # Cambiar a Transformers
@@ -179,7 +185,7 @@ client = UniversalChatClient(
 
 # Generar respuesta
 response = client.infer("¿Qué es Python?")
-print(response["choices"][0]["message"]["content"])
+print(response)
 
 # Guardar sesión
 client.save_log()
@@ -200,7 +206,7 @@ client = UniversalChatClient(
 
 # Generar respuesta
 response = client.infer("Explica las list comprehensions")
-print(response["choices"][0]["message"]["content"])
+print(response)
 ```
 
 ### Ejemplo 3: Con Cuantización (8-bit)
@@ -217,7 +223,7 @@ client = UniversalChatClient(
 )
 
 response = client.infer("Hola, ¿cómo estás?")
-print(response["choices"][0]["message"]["content"])
+print(response)
 ```
 
 ### Ejemplo 4: Cambio Dinámico de Backend
@@ -235,22 +241,28 @@ client = UniversalChatClient(
 
 # Cambiar a Transformers
 client.change_model(
-    new_model_path="bigscience/bloom-560m",
+    model_path="bigscience/bloom-560m",  # o usar model_name_or_path en kwargs
     backend="transformers"
+)
+
+# Alternativa: usar model_name_or_path en kwargs
+client.change_model(
+    backend="transformers",
+    model_name_or_path="bigscience/bloom-560m"
 )
 
 # Ahora usa Transformers
 response = client.infer("Nueva pregunta")
+print(response)
 ```
 
 ## Documentación Adicional
 
 - **Documentación Completa**: Ver `README.md`
 - **Configuración**: Ver `CONFIG.md`
-- **Arquitectura Multi-Backend**: Ver `doc/BACKENDS_ARCHITECTURE.md`
+- **Arquitectura Multi-Backend**: Ver `doc/03.11.25/BACKENDS_ARCHITECTURE.md`
 - **Ejemplos Completos**: Ver `EXAMPLES.md` (19 ejemplos)
-- **Guía de Migración v2.0**: Ver `MIGRATION_v2.md`
-- **Alias de Parámetros**: Ver `doc/PARAMETER_ALIASES.md`
+- **Alias de Parámetros**: Ver `doc/03.11.25/PARAMETER_ALIASES.md`
 - **Fix Python 3.13**: Ver `doc/03.11.25/PYTHON_3.13_FIX.md`
 - **Estructura del Proyecto**: Ver `PROJECT_STRUCTURE.md`
 - **Verificar Instalación**: Ejecutar `python verify_installation.py`
@@ -311,7 +323,11 @@ python verify_installation.py
 # Para GGUF: Descargar cuantización menor (Q4 vs Q8)
 /models  # Ver recomendaciones
 
-# Para Transformers: Usar cuantización 8-bit
+# Para Transformers: Usar cuantización 8-bit o descargar modelo más pequeño
+/models  # Ver recomendaciones según tu RAM
+/download bigscience/bloom-560m  # Modelo pequeño para pruebas
+
+# O usar cuantización 8-bit
 client = UniversalChatClient(
     backend="transformers",
     model_name_or_path="modelo",

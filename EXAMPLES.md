@@ -88,14 +88,16 @@ for q in questions:
     print("-" * 60)
 ```
 
-### Ejemplo 4: GGUF con Model Key (Legacy)
+### Ejemplo 4: GGUF desde HuggingFace con repo_id y filename
 
 ```python
 from local_llm_chat import UniversalChatClient
 
-# Usar modelo predefinido
+# Descargar modelo GGUF directamente desde HuggingFace
 client = UniversalChatClient(
-    model_key="llama-3-8b",  # Se descarga automáticamente
+    backend="gguf",
+    repo_id="bartowski/Llama-3.2-3B-Instruct-GGUF",
+    filename="Llama-3.2-3B-Instruct-Q8_0.gguf",
     system_prompt="Eres un asistente útil."
 )
 

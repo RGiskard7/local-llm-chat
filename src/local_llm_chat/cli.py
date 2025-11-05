@@ -11,6 +11,7 @@ from huggingface_hub import hf_hub_download, HfApi, snapshot_download
 from .client import UniversalChatClient
 from .utils import list_local_models, show_available_models, show_help
 from .config import Config
+from .model_config import _select_preferred_gguf_file
 
 # RAG imports - lazy loading (solo se carga cuando se usa /rag)
 RAG_AVAILABLE = False
@@ -43,20 +44,61 @@ def run_cli():
     # Cargar configuración (RESPONSABILIDAD DEL CLI, NO DEL CLIENT)
     config = Config()
 
-    # Mostrar modelos disponibles
+    # Obtener modelos locales
     local_models = list_local_models()
-    print("\nLOCAL MODELS:")
-    if local_models:
-        for i, model in enumerate(local_models, 1):
-            print(f"  {i}. {os.path.basename(model)}")
-    else:
-        print("  None found in ./models")
 
     # Inicializar cliente
     client = None
 
-    # Si no hay modelos locales, mostrar recomendaciones
-    if not local_models:
+    # Si hay modelos locales, mostrar solo los locales
+    if local_models:
+        print("\n" + "=" * 60)
+        print(f"FOUND {len(local_models)} LOCAL MODEL(S)")
+        print("=" * 60)
+        print("\nPlease select a model:")
+        for i, model_info in enumerate(local_models, 1):
+            model_name = model_info['name']
+            model_type = model_info['type'].upper()
+            print(f"  {i}. {model_name} [{model_type}]")
+        print("=" * 60)
+
+        choice = input("\nYour choice (number): ").strip()
+
+        if choice.isdigit() and 1 <= int(choice) <= len(local_models):
+            selected_model = local_models[int(choice) - 1]
+            model_path = selected_model['path']
+            model_type = selected_model['type']
+            model_name = selected_model['name']
+            print(f"\n[INIT] Loading: {model_name} [{model_type.upper()}]")
+            try:
+                # Detectar backend automáticamente según tipo
+                if model_type == 'transformers':
+                    client = UniversalChatClient(
+                        backend="transformers",
+                        model_name_or_path=model_path,
+                        device="auto",
+                        verbose=config.model.verbose,
+                        llm_config=config.llm
+                    )
+                else:
+                    # GGUF
+                    client = UniversalChatClient(
+                        model_path=model_path,
+                        n_ctx=config.model.n_ctx,
+                        n_gpu_layers=config.model.n_gpu_layers,
+                        verbose=config.model.verbose,
+                        llm_config=config.llm
+                    )
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize: {e}")
+                return
+        else:
+            print(f"[ERROR] Invalid choice: {choice}")
+            print("[INFO] Please restart and choose a valid option")
+            return
+    
+    # Si NO hay modelos locales, mostrar recomendaciones
+    else:
         print("\n[INFO] No local models found. Showing recommendations...")
         cached_recommendations = show_available_models()
 
@@ -103,17 +145,11 @@ def run_cli():
                     print(f"[ERROR] No GGUF files found in {model_to_download['repo_id']}")
                     return
 
-                preferred_file = None
-                for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
-                    for f in gguf_files:
-                        if preference in f.lower():
-                            preferred_file = f
-                            break
-                    if preferred_file:
-                        break
-
+                # Usar función reutilizable para seleccionar archivo preferido
+                preferred_file = _select_preferred_gguf_file(gguf_files)
                 if not preferred_file:
-                    preferred_file = gguf_files[0]
+                    print(f"[ERROR] Could not select GGUF file")
+                    return
 
                 print(f"[INFO] Downloading file: {preferred_file}")
 
@@ -136,54 +172,43 @@ def run_cli():
                 )
             
             elif backend_type == 'transformers':
-                # Transformers: carga directamente (descarga automática)
-                print(f"[INFO] Loading Transformers model (auto-download from HuggingFace Hub)...")
+                # Transformers: descargar a ./models/ y cargar desde ahí
+                print(f"[INFO] Downloading Transformers model to ./models/...")
+                print(f"[INFO] This may take several minutes...")
                 
+                # Normalizar nombre para carpeta
+                model_folder = model_to_download['repo_id'].replace('/', '_')
+                local_model_path = f"./models/{model_folder}"
+                
+                # Descargar modelo completo a ./models/
+                try:
+                    downloaded_path = snapshot_download(
+                        repo_id=model_to_download['repo_id'],
+                        local_dir=local_model_path,
+                    )
+                    print(f"[SUCCESS] Model downloaded to: {downloaded_path}")
+                except Exception as download_error:
+                    print(f"[ERROR] Failed to download model: {download_error}")
+                    raise
+                
+                # Cargar desde ruta local
+                print(f"[INFO] Loading model from local path...")
                 client = UniversalChatClient(
                     backend="transformers",
-                    model_name_or_path=model_to_download['repo_id'],
+                    model_name_or_path=downloaded_path,  # Ruta local, no repo_id
                     device="auto",
                     verbose=config.model.verbose,
                     llm_config=config.llm
                 )
                 
                 print(f"[SUCCESS] Model loaded successfully!")
+                print(f"[INFO] You can now chat with {model_to_download['repo_id']}")
+                print(f"[INFO] Model location: {downloaded_path}")
 
         except Exception as e:
             print(f"[ERROR] Download/load failed: {e}")
             import traceback
             traceback.print_exc()
-            return
-    else:
-        # Hay modelos locales, preguntar cuál usar (comentario ya en español)
-        print("\n" + "=" * 60)
-        print(f"FOUND {len(local_models)} LOCAL MODEL(S)")
-        print("=" * 60)
-        print("\nPlease select a model:")
-        for i, model in enumerate(local_models, 1):
-            print(f"  {i}. {os.path.basename(model)}")
-        print("=" * 60)
-
-        choice = input("\nYour choice (number): ").strip()
-
-        if choice.isdigit() and 1 <= int(choice) <= len(local_models):
-            model_path = local_models[int(choice) - 1]
-            print(f"\n[INIT] Loading: {os.path.basename(model_path)}")
-            try:
-                # Pasar configuración explícitamente
-                client = UniversalChatClient(
-                    model_path=model_path,
-                    n_ctx=config.model.n_ctx,
-                    n_gpu_layers=config.model.n_gpu_layers,
-                    verbose=config.model.verbose,
-                    llm_config=config.llm
-                )
-            except Exception as e:
-                print(f"[ERROR] Failed to initialize: {e}")
-                return
-        else:
-            print(f"[ERROR] Invalid choice: {choice}")
-            print("[INFO] Please restart and choose a valid option")
             return
 
     if client is None:
@@ -243,7 +268,7 @@ def run_cli():
                 continue
 
             elif user_input.lower() == '/clear':
-                client.conversation_history = []
+                client._conversation.clear_history()
                 print("[CLEAR] History cleared")
                 continue
 
@@ -339,18 +364,11 @@ def run_cli():
                             print(f"[ERROR] No GGUF files found in {repo_id}")
                             continue
 
-                        # Elegir el archivo más apropiado
-                        preferred_file = None
-                        for preference in ['q8_0', 'q8', 'q6', 'q5', 'q4']:
-                            for f in gguf_files:
-                                if preference in f.lower():
-                                    preferred_file = f
-                                    break
-                            if preferred_file:
-                                break
-
+                        # Usar función reutilizable para seleccionar archivo preferido
+                        preferred_file = _select_preferred_gguf_file(gguf_files)
                         if not preferred_file:
-                            preferred_file = gguf_files[0]
+                            print(f"[ERROR] Could not select GGUF file")
+                            continue
 
                         print(f"[INFO] Downloading file: {preferred_file}")
 
@@ -549,7 +567,7 @@ def run_cli():
                     # ARQUITECTURA CORRECTA: RAG → Context → LLM
                     
                     # 1. Buscar contexto relevante (sin LLM)
-                    rag_result = rag_manager.search_context(user_input, top_k=3)
+                    rag_result = rag_manager.search_context(user_input, top_k=config.rag.top_k)
                     
                     # 2. Verificar si hay contexto útil
                     if rag_result and rag_result.get("contexts"):

@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from huggingface_hub import hf_hub_download
 
 from .backends import GGUFBackend, TransformersBackend, TRANSFORMERS_AVAILABLE
-from .model_config import get_model_info, detect_backend_type
+from .model_config import detect_backend_type
 
 # Configuración
 LOGS_DIR = "./chat_logs"
@@ -39,8 +39,8 @@ class ConversationManager:
         })
     
     def clear_history(self):
-        """Limpia el historial"""
-        self.conversation_history = []
+        """Limpia el historial preservando la referencia al objeto lista"""
+        self.conversation_history.clear()
     
     def get_history(self) -> List[Dict]:
         """Retorna el historial completo"""
@@ -76,8 +76,8 @@ class ConversationManager:
         }
     
     def reset_session(self, session_id: str = None):
-        """Reinicia la sesión con un nuevo ID"""
-        self.conversation_history = []
+        """Reinicia la sesión con un nuevo ID preservando referencias"""
+        self.conversation_history.clear()
         self.session_start = datetime.now()
         self.session_id = session_id or self.session_start.strftime("%Y%m%d_%H%M%S")
 
@@ -109,19 +109,12 @@ class UniversalChatClient:
             model_name_or_path="bigscience/bloom-560m"
         )
     
-    Uso con model_key (legacy):
-        client = UniversalChatClient(
-            model_key="llama-3-8b"
-        )
-    """
-    
     def __init__(
         self,
         # Parámetros de backend
         backend: str = "gguf",  # "gguf" o "transformers"
         
         # Parámetros GGUF
-        model_key: Optional[str] = None,
         model_path: Optional[str] = None,
         repo_id: Optional[str] = None,
         filename: Optional[str] = None,
@@ -148,7 +141,6 @@ class UniversalChatClient:
             backend: Tipo de backend ("gguf" o "transformers")
             
             # GGUF params
-            model_key: Clave de modelo popular (legacy)
             model_path: Ruta al modelo (funciona con ambos backends)
             repo_id: Repositorio HF (para GGUF)
             filename: Nombre archivo GGUF
@@ -224,13 +216,20 @@ class UniversalChatClient:
         # Inicializar backend según tipo
         if self.backend_type == "gguf":
             self._init_gguf_backend(
-                model_key, model_path, repo_id, filename,
-                n_gpu_layers, n_ctx
+                model_path=model_path,
+                repo_id=repo_id,
+                filename=filename,
+                n_gpu_layers=n_gpu_layers,
+                n_ctx=n_ctx
             )
         elif self.backend_type == "transformers":
             self._init_transformers_backend(
-                model_name_or_path, device, torch_dtype,
-                trust_remote_code, load_in_8bit, load_in_4bit
+                model_path=model_path,
+                device=device,
+                torch_dtype=torch_dtype,
+                trust_remote_code=trust_remote_code,
+                load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit
             )
         else:
             raise ValueError(
@@ -256,7 +255,6 @@ class UniversalChatClient:
     
     def _init_gguf_backend(
         self,
-        model_key: Optional[str],
         model_path: Optional[str],
         repo_id: Optional[str],
         filename: Optional[str],
@@ -266,23 +264,12 @@ class UniversalChatClient:
         """Inicializa backend GGUF"""
         print("[BACKEND] Using GGUF (llama-cpp-python)")
         
-        # Determinar qué modelo cargar (legacy model_key support)
-        if model_key:
-            model_info = get_model_info(model_key)
-            if not model_info:
-                raise ValueError(f"Model '{model_key}' not found. Use list_models() for options.")
-            
-            print(f"[MODEL] {model_info['description']}")
-            repo_id = model_info["repo_id"]
-            filename = model_info["filename"]
-        
         # Descargar modelo si es necesario
         if not model_path:
             if not (repo_id and filename):
                 raise ValueError(
                     "For GGUF backend, provide either:\n"
                     "  - model_path (local .gguf file)\n"
-                    "  - model_key (popular model)\n"
                     "  - repo_id + filename (HuggingFace)"
                 )
             
@@ -719,7 +706,6 @@ class UniversalChatClient:
                     raise ValueError("model_path required for GGUF backend")
                 
                 self._init_gguf_backend(
-                    model_key=None,
                     model_path=model_path,
                     repo_id=kwargs.get("repo_id"),
                     filename=kwargs.get("filename"),

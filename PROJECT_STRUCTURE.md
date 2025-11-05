@@ -29,8 +29,9 @@ local-llm-chat/
 ├── doc/                      # Documentación histórica
 │   └── ...
 │
-├── models/                   # Modelos GGUF descargados (gitignored)
-│   └── *.gguf
+├── models/                   # Modelos descargados (GGUF y Transformers) (gitignored)
+│   ├── *.gguf                # Modelos GGUF (archivos)
+│   └── */                    # Modelos Transformers (carpetas con config.json, model.safetensors)
 │
 ├── chat_logs/                # Registros de sesiones (gitignored)
 │   └── *.json
@@ -62,14 +63,14 @@ local-llm-chat/
 
 | Archivo | Líneas | Responsabilidad |
 |------|-------|---------------|
-| `client.py` | ~500 | Clase UniversalChatClient, gestión de conversaciones, carga de modelos |
-| `cli.py` | ~535 | Interfaz CLI, procesamiento de comandos, interacción del usuario, RAG workflow |
-| `utils.py` | ~120 | Funciones auxiliares (listado de modelos, recomendaciones, ayuda) |
-| `model_config.py` | ~410 | Detección de tipo de modelo, mapeo de formato de chat, detección de hardware |
+| `client.py` | ~768 | Clase UniversalChatClient, gestión de conversaciones (ConversationManager), carga de modelos |
+| `cli.py` | ~626 | Interfaz CLI, procesamiento de comandos, interacción del usuario, RAG workflow |
+| `utils.py` | ~182 | Funciones auxiliares (listado de modelos locales, recomendaciones desde HuggingFace, ayuda) |
+| `model_config.py` | ~654 | Detección de tipo de modelo, mapeo de formato de chat, detección de hardware, recomendaciones desde API HuggingFace |
 | `prompts.py` | ~50 | Presets de system prompts (coding, creative, etc.) |
 | `config.py` | ~200 | Sistema de configuración centralizada (Model, LLM, RAG) con soporte env vars |
 | `config.json` | ~20 | Configuración por defecto en formato JSON |
-| `__init__.py` | ~33 | Inicialización del paquete, exportaciones de API pública |
+| `__init__.py` | ~43 | Inicialización del paquete, exportaciones de API pública |
 | `__main__.py` | ~8 | Punto de entrada para ejecución de módulo |
 
 ### Módulo RAG (`src/local_llm_chat/rag/`)
@@ -158,10 +159,10 @@ Problemas:
 
 ```
 src/local_llm_chat/
-├── client.py (410 líneas)        → Testeable
-├── cli.py (300 líneas)            → Reemplazable
-├── utils.py (110 líneas)          → Reutilizable
-└── model_config.py (410 líneas)   → Independiente
+├── client.py (~768 líneas)        → Testeable, ConversationManager integrado
+├── cli.py (~626 líneas)            → Reemplazable, recomendaciones desde HuggingFace
+├── utils.py (~182 líneas)          → Reutilizable, detección de modelos locales
+└── model_config.py (~654 líneas)   → Independiente, API HuggingFace integrada
 
 Ventajas:
 - Cada archivo tiene una responsabilidad única
@@ -179,7 +180,7 @@ Ventajas:
 5. **Testeabilidad**: Funciones y clases puras
 6. **Extensibilidad**: Fácil de agregar nuevas interfaces (API, GUI)
 7. **Estándares Profesionales**: Sigue las mejores prácticas de empaquetado de Python
-8. **Sin Hardcodeos**: Todo configurable mediante config.json o env vars
+8. **Sin Hardcodeos**: Todo configurable mediante config.json o env vars. Modelos recomendados desde API HuggingFace (no hardcodeados)
 
 ## Ejemplos de Uso
 

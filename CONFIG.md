@@ -1,12 +1,12 @@
-# Configuration Guide
+# Guía de Configuración
 
-## Overview
+## Resumen
 
-Local LLM Chat uses a centralized configuration system that supports multiple configuration sources with clear priority ordering.
+Local LLM Chat utiliza un sistema de configuración centralizado que soporta múltiples fuentes de configuración con un orden de prioridad claro.
 
-## Configuration Files
+## Archivos de Configuración
 
-### Default Configuration: `src/local_llm_chat/config.json`
+### Configuración por Defecto: `src/local_llm_chat/config.json`
 
 ```json
 {
@@ -31,9 +31,9 @@ Local LLM Chat uses a centralized configuration system that supports multiple co
 }
 ```
 
-### Custom Configuration
+### Configuración Personalizada
 
-Create `config.local.json` in the same directory to override defaults:
+Crea `config.local.json` en el mismo directorio para sobrescribir los valores por defecto:
 
 ```json
 {
@@ -44,65 +44,65 @@ Create `config.local.json` in the same directory to override defaults:
 }
 ```
 
-## Configuration Priority
+## Prioridad de Configuración
 
-1. **Constructor parameters** (highest priority) - for library usage
-2. **Environment variables** - for deployment
-3. **JSON file** - for persistent config
-4. **Default values** - hardcoded fallback
+1. **Parámetros del constructor** (máxima prioridad) - para uso como biblioteca
+2. **Variables de entorno** - para despliegue
+3. **Archivo JSON** - para configuración persistente
+4. **Valores por defecto** - fallback configurado en código
 
-## Configuration Sections
+## Secciones de Configuración
 
-### Model Configuration (Loading & Initialization)
+### Configuración del Modelo (Carga e Inicialización)
 
-Parameters used when loading the model into memory:
+Parámetros utilizados al cargar el modelo en memoria:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `n_ctx` | int | 8192 | Context window size in tokens |
-| `n_gpu_layers` | int | -1 | GPU layers (-1 = auto, 0 = CPU only) |
-| `verbose` | bool | false | Enable verbose model loading logs |
+| Parámetro | Tipo | Por Defecto | Descripción |
+|-----------|------|-------------|-------------|
+| `n_ctx` | int | 8192 | Tamaño de la ventana de contexto en tokens |
+| `n_gpu_layers` | int | -1 | Capas en GPU (-1 = automático, 0 = solo CPU) |
+| `verbose` | bool | false | Habilitar logs detallados de carga del modelo |
 
-### LLM Configuration (Inference & Generation)
+### Configuración LLM (Inferencia y Generación)
 
-Parameters used during text generation:
+Parámetros utilizados durante la generación de texto:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `max_tokens` | int | 256 | Maximum tokens to generate per response |
-| `temperature` | float | 0.7 | Sampling temperature (0.0-2.0) |
-| `top_p` | float | 0.9 | Nucleus sampling threshold |
-| `repeat_penalty` | float | 1.1 | Repetition penalty factor |
-| `top_k` | int | 40 | Top-k sampling parameter |
+| Parámetro | Tipo | Por Defecto | Descripción |
+|-----------|------|-------------|-------------|
+| `max_tokens` | int | 256 | Máximo de tokens a generar por respuesta |
+| `temperature` | float | 0.7 | Temperatura de muestreo (0.0-2.0) |
+| `top_p` | float | 0.9 | Umbral de muestreo nucleus |
+| `repeat_penalty` | float | 1.1 | Factor de penalización por repetición |
+| `top_k` | int | 40 | Parámetro de muestreo top-k |
 
-### RAG Configuration (Document Q&A)
+### Configuración RAG (Documentos Q&A)
 
-Parameters for RAG document processing and retrieval:
+Parámetros para procesamiento y recuperación de documentos RAG:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `chunk_size` | int | 150 | Chunk size in words |
-| `chunk_overlap` | int | 25 | Overlap between chunks in words |
-| `top_k` | int | 1 | Number of chunks to retrieve |
-| `max_context_tokens` | int | 800 | Maximum context size in words |
+| Parámetro | Tipo | Por Defecto | Descripción |
+|-----------|------|-------------|-------------|
+| `chunk_size` | int | 150 | Tamaño de chunk en palabras |
+| `chunk_overlap` | int | 25 | Solapamiento entre chunks en palabras |
+| `top_k` | int | 1 | Número de chunks a recuperar |
+| `max_context_tokens` | int | 800 | Tamaño máximo de contexto en palabras |
 
-## Usage Examples
+## Ejemplos de Uso
 
-### 1. Standalone Application
+### 1. Aplicación Standalone
 
-Edit `config.json` directly:
+Edita `config.json` directamente:
 
 ```bash
 cd src/local_llm_chat
 nano config.json
 ```
 
-### 2. As Library (Dependency Injection)
+### 2. Como Biblioteca (Inyección de Dependencias)
 
 ```python
 from local_llm_chat import UniversalChatClient
 from local_llm_chat.config import Config
-from local_llm_chat.rag import SimpleRAG  # Imported from simple_rag_backend.py
+from local_llm_chat.rag import SimpleRAG  # Importado de simple_rag_backend.py
 
 # ✅ CORRECTO: Cargar config y pasarla explícitamente
 config = Config()
@@ -123,7 +123,7 @@ rag = SimpleRAG(client, config=config)
 # client = UniversalChatClient(model_path="model.gguf")  # Sin config
 ```
 
-### 3. Custom Configuration
+### 3. Configuración Personalizada
 
 ```python
 # Cargar config personalizado
@@ -143,35 +143,35 @@ client = UniversalChatClient(
 )
 ```
 
-### 3. Environment Variables
+### 4. Variables de Entorno
 
 ```bash
-# Model configuration
+# Configuración del modelo
 export MODEL_N_CTX=4096
 export MODEL_N_GPU_LAYERS=32
 export MODEL_VERBOSE=true
 
-# LLM configuration
+# Configuración LLM
 export LLM_MAX_TOKENS=512
 export LLM_TEMPERATURE=0.2
 export LLM_TOP_P=0.95
 export LLM_TOP_K=50
 
-# RAG configuration
+# Configuración RAG
 export RAG_CHUNK_SIZE=200
 export RAG_TOP_K=2
 export RAG_MAX_CONTEXT_TOKENS=1000
 
-# Run application
+# Ejecutar aplicación
 python -m local_llm_chat
 ```
 
-### 4. Per-Project Configuration
+### 5. Configuración por Proyecto
 
-Create a project-specific config:
+Crea una configuración específica del proyecto:
 
 ```bash
-# Create config
+# Crear config
 cat > config.production.json << EOF
 {
   "rag": {
@@ -185,7 +185,7 @@ cat > config.production.json << EOF
 }
 EOF
 
-# Use it
+# Usarla
 python -c "
 from local_llm_chat.config import Config
 config = Config('config.production.json')
@@ -193,9 +193,9 @@ print(config.rag.chunk_size)  # 300
 "
 ```
 
-## Performance Tuning
+## Ajuste de Rendimiento
 
-### For 3B Models on CPU (Default)
+### Para Modelos 3B en CPU (Por Defecto)
 
 ```json
 {
@@ -211,9 +211,9 @@ print(config.rag.chunk_size)  # 300
 }
 ```
 
-**Expected**: 2-4 minutes per query
+**Esperado**: 2-4 minutos por consulta
 
-### For Larger Models on GPU
+### Para Modelos Grandes en GPU
 
 ```json
 {
@@ -229,9 +229,9 @@ print(config.rag.chunk_size)  # 300
 }
 ```
 
-**Expected**: 10-30 seconds per query
+**Esperado**: 10-30 segundos por consulta
 
-### For Quality over Speed
+### Para Calidad sobre Velocidad
 
 ```json
 {
@@ -248,61 +248,61 @@ print(config.rag.chunk_size)  # 300
 }
 ```
 
-## Saving Configuration
+## Guardar Configuración
 
 ```python
 from local_llm_chat.config import Config
 
-# Create or modify config
+# Crear o modificar config
 config = Config()
 config.rag.chunk_size = 200
 config.llm.max_tokens = 512
 
-# Save to file
+# Guardar en archivo
 config.save_to_file("my_config.json")
 ```
 
-## Best Practices
+## Mejores Prácticas
 
-1. **Use JSON files for persistent configs** across sessions
-2. **Use environment variables for deployment** (Docker, cloud)
-3. **Use constructor parameters for library usage** (programmatic control)
-4. **Keep `config.json` in version control** (default values)
-5. **Ignore custom configs in git** (already in `.gitignore`)
+1. **Usa archivos JSON para configuraciones persistentes** entre sesiones
+2. **Usa variables de entorno para despliegue** (Docker, cloud)
+3. **Usa parámetros del constructor para uso como biblioteca** (control programático)
+4. **Mantén `config.json` en control de versiones** (valores por defecto)
+5. **Ignora configuraciones personalizadas en git** (ya están en `.gitignore`)
 
-## Troubleshooting
+## Resolución de Problemas
 
-### Config not loading?
+### ¿La configuración no se carga?
 
 ```python
 from local_llm_chat.config import Config
 config = Config()
-print(config)  # Shows loaded values
+print(config)  # Muestra los valores cargados
 ```
 
-### Which config is being used?
+### ¿Qué configuración se está usando?
 
-Check console output on startup:
+Comprueba la salida de consola al iniciar:
 ```
 [RAG] Using config: chunk_size=150, top_k=1
 ```
 
-### Reset to defaults
+### Restablecer a valores por defecto
 
 ```bash
-# Remove custom config
+# Eliminar config personalizada
 rm src/local_llm_chat/config.local.json
 
-# Or reset in code
-config = Config()  # Always loads defaults first
+# O restablecer en código
+config = Config()  # Siempre carga primero los valores por defecto
 ```
 
-## Advanced: Programmatic Override
+## Avanzado: Sobrescritura Programática
 
 ```python
 from local_llm_chat.config import Config, ModelConfig, LLMConfig, RAGConfig
 
-# Create completely custom config
+# Crear configuración completamente personalizada
 custom_model = ModelConfig(
     n_ctx=4096,
     n_gpu_layers=32,
@@ -330,15 +330,14 @@ config.llm = custom_llm
 config.rag = custom_rag
 ```
 
-## Migration from Previous Versions
+## Migración desde Versiones Anteriores
 
-Previous hardcoded values have been replaced with configurable defaults:
+Los valores hardcodeados anteriores han sido reemplazados por valores por defecto configurables:
 
-| Parameter | Old | New | Location |
-|-----------|-----|-----|----------|
+| Parámetro | Anterior | Nuevo | Ubicación |
+|-----------|----------|-------|-----------|
 | chunk_size | 500 | 150 | config.rag.chunk_size |
 | top_k | 3 | 1 | config.rag.top_k |
 | max_tokens | 512 | 256 | config.llm.max_tokens |
 
-**Action required**: None - defaults are optimized for 3B models on CPU
-
+**Acción requerida**: Ninguna - los valores por defecto están optimizados para modelos 3B en CPU

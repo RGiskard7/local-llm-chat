@@ -4,6 +4,60 @@ Registro completo de cambios y mejoras del proyecto.
 
 ---
 
+## 📅 2025-11-04 — v2.0.4: Eliminación de código legacy y hardcodeo
+
+**Archivos modificados:**
+- `src/local_llm_chat/model_config.py`
+- `src/local_llm_chat/client.py`
+- `src/local_llm_chat/__init__.py`
+- `src/local_llm_chat/utils.py`
+- `EXAMPLES.md`
+- `MIGRATION_v2.md`
+
+**Resumen:**
+Eliminación completa de código legacy hardcodeado (`POPULAR_MODELS`, `model_key`) para mantener solo datos reales de la API de HuggingFace. Todo el código ahora usa información dinámica de HuggingFace sin hardcodeo subjetivo.
+
+**Cambios principales:**
+
+1. **Eliminado `POPULAR_MODELS` (hardcodeo subjetivo)**
+   - **Problema**: Lista hardcodeada de modelos "populares" elegidos manualmente
+   - **Fix**: Eliminada completamente. Ahora todo viene de la API real de HuggingFace mediante `get_smart_recommendations()` y `get_transformers_recommendations()`
+   - **Archivos**: `src/local_llm_chat/model_config.py` (eliminadas líneas 195-226)
+
+2. **Eliminado `model_key` (parámetro legacy)**
+   - **Problema**: Parámetro legacy que permitía usar nombres cortos como "llama-3-8b" en lugar de `repo_id`
+   - **Fix**: Eliminado completamente de `UniversalChatClient.__init__()` y `_init_gguf_backend()`
+   - **Alternativa**: Usar directamente `repo_id` + `filename` o `model_path`, o usar `/download` con recomendaciones
+   - **Archivos**: `src/local_llm_chat/client.py` (eliminado parámetro y toda su lógica)
+
+3. **Eliminadas funciones relacionadas**
+   - `get_model_info()` - Solo funcionaba con `POPULAR_MODELS` hardcodeado
+   - `list_popular_models()` - Solo listaba modelos hardcodeados
+   - **Archivos**: `src/local_llm_chat/model_config.py`, `src/local_llm_chat/__init__.py`, `src/local_llm_chat/utils.py`
+
+4. **Actualizado `validate_model_config()`**
+   - Eliminada validación de `POPULAR_MODELS` (ya no existe)
+   - Solo valida consistencia de tipos de modelo y `CHAT_FORMAT_MAP`
+
+5. **Documentación actualizada**
+   - `EXAMPLES.md`: Ejemplo con `model_key` reemplazado por ejemplo con `repo_id` + `filename`
+   - `MIGRATION_v2.md`: Eliminadas referencias a `model_key`
+   - Comentarios actualizados: "legacy" → "código existente"
+
+**Impacto:**
+- ✅ **Sin hardcodeo**: Todo viene de la API de HuggingFace
+- ✅ **Código más limpio**: Eliminadas ~50 líneas de código legacy
+- ✅ **API simplificada**: Menos parámetros confusos
+- ✅ **Mantenibilidad**: Sin necesidad de mantener lista de modelos manualmente
+
+**Nota sobre configuración técnica:**
+Las constantes `MODELS_WITH_NATIVE_SYSTEM_SUPPORT`, `CHAT_FORMAT_MAP`, `RAM_SIZE_THRESHOLDS`, etc. son **configuración técnica legítima** (no hardcodeo subjetivo):
+- Definen cómo funcionan técnicamente los modelos (formato de chat, soporte de system prompt)
+- Son necesarias para el funcionamiento correcto del sistema
+- No son listas de modelos "populares" elegidos manualmente
+
+---
+
 ## 📅 2025-11-04 — v2.0.3: Modelos Transformers en ./models/ por consistencia
 
 **Archivos modificados:**
